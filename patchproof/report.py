@@ -14,6 +14,69 @@ from .models import Finding, Evidence
 
 console = Console(legacy_windows=False)
 
+CWE_EXPLANATIONS = {
+    "CWE-89": {
+        "name": "SQL Injection (SQLi)",
+        "category": "Injection",
+        "description": "User input from the HTTP query string is directly concatenated into a dynamic SQL query without sanitization or parameter binding.",
+        "impact": "Database compromise: attackers can extract confidential records (canary row), bypass authentication, or modify tables.",
+        "canary": "PP_CANARY_SQLI_8f2a",
+        "canary_desc": "A canary row with name 'PP_CANARY_SQLI_8f2a' seeded into the users table with role 'canary'.",
+        "exploit_payload": "' OR '1'='1' --",
+        "exploit_mechanism": "Injects a tautology ('1'='1') that causes the WHERE condition to evaluate to true for every row, leaking all records including secret canary rows.",
+        "solution_title": "Parameterized Queries (Prepared Statements)",
+        "solution_mechanism": "Replaces query string formatting with parameterized placeholders ('?'). The SQL statement structure is parsed and compiled by the database engine independently from data values, rendering input characters syntactically harmless.",
+        "bad_fix_title": "Naive Comment / Quote Blacklisting",
+        "bad_fix_mechanism": "Developers often mistakenly try to strip comment markers (like '--') or single quotes. Attackers bypass this using alternative comment syntaxes (/* ... */), inline tautologies (' OR ''='), or double escaping.",
+        "best_practice": "Always use database driver parameterized execution: cursor.execute('SELECT ... WHERE col = ?', (val,)). Never interpolate variables with f-strings or format().",
+    },
+    "CWE-78": {
+        "name": "OS Command Injection (CMDi)",
+        "category": "Injection / RCE",
+        "description": "User-supplied hostname input is passed directly to an operating system shell via subprocess.run(cmd, shell=True).",
+        "impact": "Remote Command Execution: allows arbitrary commands to run with the privileges of the web application process, enabling filesystem reads, malware downloads, or server takeover.",
+        "canary": "PP_CANARY_CMDI",
+        "canary_desc": "A canary token echo payload executed within the system shell context.",
+        "exploit_payload": "127.0.0.1; echo PP_CANARY_CMDI",
+        "exploit_mechanism": "Shell metacharacters like ';' or '&&' terminate the ping command and execute arbitrary subsequent commands injected by the attacker.",
+        "solution_title": "Argument List Execution (shell=False) + Strict Allowlist",
+        "solution_mechanism": "Runs the binary directly as an argument list (['ping', flag, '1', host]) without invoking a system shell. Combined with strict alphanumeric/hostname regex validation (^[a-zA-Z0-9.-]+$) to reject invalid input without echoing it.",
+        "bad_fix_title": "Incomplete Metacharacter Blacklist",
+        "bad_fix_mechanism": "Blocking only ';' or '&&' fails because modern shells offer multiple alternative execution vectors, including command substitution $(cmd), pipes '|', and backticks `cmd`.",
+        "best_practice": "Never pass shell=True when executing system commands. Pass arguments as a list of strings and strictly validate inputs against an allowlist.",
+    },
+    "CWE-22": {
+        "name": "Path Traversal (Arbitrary File Read)",
+        "category": "File Handling",
+        "description": "User-supplied filename parameter is concatenated directly to the public directory path with os.path.join without boundary checks.",
+        "impact": "Information Disclosure: allows directory traversal via '../' sequences to read sensitive server files, configuration keys, or application secrets outside the web root.",
+        "canary": "PP_CANARY_PATHTRAVERSAL_3d7b",
+        "canary_desc": "A secret file located outside the public directory at secrets/secret.txt containing the secret canary string.",
+        "exploit_payload": "../../secrets/secret.txt",
+        "exploit_mechanism": "Relative path navigation sequences escape the public folder and access files in parent and adjacent secret directories.",
+        "solution_title": "Path Normalization & Resolved Root Prefix Check",
+        "solution_mechanism": "Uses werkzeug.utils.safe_join to reject directory escape attempts, and verifies that os.path.realpath(filepath) strictly starts with os.path.realpath(PUBLIC_DIR), returning HTTP 403 on boundary violation.",
+        "bad_fix_title": "Single-Pass Relative Sequence Stripping",
+        "bad_fix_mechanism": "Naive string replacements like filename.replace('../', '') are easily defeated by nested traversal sequences such as '....//', which collapse to '../' after the single replacement.",
+        "best_practice": "Use hardened path helpers like safe_join() and always resolve and verify real canonical paths against authorized base directories.",
+    },
+    "CWE-918": {
+        "name": "Server-Side Request Forgery (SSRF)",
+        "category": "Network",
+        "description": "The application fetches remote resources from user-controlled URLs without validating host addresses.",
+        "impact": "Internal Network Scanning: attackers can force the server to connect to internal services, loopback interfaces, or cloud metadata endpoints.",
+        "canary": "PP_CANARY_SSRF",
+        "canary_desc": "A local canary probe listening on loopback interface.",
+        "exploit_payload": "http://127.0.0.1:9999/canary",
+        "exploit_mechanism": "Forces server to perform HTTP requests to sensitive internal loopback ports.",
+        "solution_title": "Strict URL Scheme & IP Blocklist Validation",
+        "solution_mechanism": "Validates protocol to HTTPS only and verifies that resolved IP addresses do not belong to private or loopback subnets.",
+        "bad_fix_title": "String Prefix Checking Without DNS Resolution",
+        "bad_fix_mechanism": "Matching '127.0.0.1' or 'localhost' is easily bypassed using decimal, hexadecimal (0x7f000001), or IPv6 ([::1]) notations.",
+        "best_practice": "Parse URLs, enforce allowed domains, and validate resolved IP addresses against RFC 1918 private ranges.",
+    },
+}
+
 
 def generate_finding_report(evidence: Evidence, output_dir: Path) -> Path:
     """Generate a Markdown report for a single finding."""
@@ -212,6 +275,62 @@ def generate_html_report(evidences: list[Evidence], templates_dir: Path, output_
     """Generate an HTML evidence report."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    fixes_dir = templates_dir.parent / "fixes"
+    patch_map = {
+        "pp-flask-sqli": "01-sqli.patch",
+        "pp-flask-cmdi": "02-cmdi.patch",
+        "pp-flask-pathtraversal": "03-pathtraversal.patch",
+    }
+
+    enriched_evidences = []
+    for ev in evidences:
+        f = ev.finding
+        cwe_info = CWE_EXPLANATIONS.get(f.cwe, {
+            "name": f.rule_id,
+            "category": "Security",
+            "description": f"Potential security vulnerability in {f.file or 'application'}.",
+            "impact": "Security risk to the application.",
+            "canary": "N/A",
+            "canary_desc": "Canary token check",
+            "exploit_payload": "N/A",
+            "exploit_mechanism": "Exploits unvalidated input.",
+            "solution_title": "Input Validation & Hardened Call",
+            "solution_mechanism": "Apply input validation and safe APIs.",
+            "bad_fix_title": "Incomplete Blacklist",
+            "bad_fix_mechanism": "Weak sanitization fails against bypasses.",
+            "best_practice": "Follow secure coding guidelines.",
+        })
+
+        test_content = ""
+        if f.test_path and Path(f.test_path).exists():
+            try:
+                test_content = Path(f.test_path).read_text(encoding="utf-8")
+            except Exception:
+                test_content = ""
+
+        diff_patch = ev.diff_patch
+        if not diff_patch:
+            patch_name = patch_map.get(f.rule_id)
+            if patch_name and (fixes_dir / patch_name).exists():
+                diff_patch = (fixes_dir / patch_name).read_text(encoding="utf-8")
+
+        enriched_evidences.append({
+            "finding": f,
+            "diff_patch": diff_patch,
+            "suite_passed": ev.suite_passed,
+            "cwe_info": cwe_info,
+            "test_content": test_content,
+            "red_output": f.red.get("output", "") if f.red else "",
+            "green_output": f.green.get("output", "") if f.green else "",
+        })
+
+    # Summary metrics
+    total_findings = len(evidences)
+    confirmed_count = sum(1 for e in evidences if e.finding.red and e.finding.red.get("failed"))
+    fixed_count = sum(1 for e in evidences if e.finding.status == "fixed")
+    mutants_killed = sum(e.finding.mutants_killed[0] for e in evidences if e.finding.mutants_killed)
+    total_mutants = sum(e.finding.mutants_killed[1] for e in evidences if e.finding.mutants_killed)
+
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
         keep_trailing_newline=True,
@@ -219,11 +338,19 @@ def generate_html_report(evidences: list[Evidence], templates_dir: Path, output_
 
     try:
         template = env.get_template("report.html.j2")
-    except Exception:
-        # Fallback: generate basic HTML
+    except Exception as exc:
+        console.print(f"[yellow]Template load failed: {exc}, using fallback[/yellow]")
         return _generate_basic_html(evidences, output_dir)
 
-    html = template.render(evidences=evidences)
+    html = template.render(
+        evidences=evidences,
+        enriched_evidences=enriched_evidences,
+        total_findings=total_findings,
+        confirmed_count=confirmed_count,
+        fixed_count=fixed_count,
+        mutants_killed=mutants_killed,
+        total_mutants=total_mutants,
+    )
     html_path = output_dir / "report.html"
     html_path.write_text(html, encoding="utf-8")
     console.print(f"  [green]HTML Report:[/green] {html_path.name}")
