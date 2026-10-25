@@ -66,6 +66,20 @@ def resolve_target_dir(target_str: str, root: Path) -> Path:
     return p
 
 
+def validate_codebase_syntax(target_dir: Path) -> list[tuple[Path, str]]:
+    """Verify that all Python files in the target codebase have valid AST syntax before executing tests."""
+    import ast
+    errors: list[tuple[Path, str]] = []
+    py_files = list(target_dir.rglob("*.py")) if target_dir.is_dir() else ([target_dir] if target_dir.suffix == ".py" else [])
+    for pf in py_files:
+        try:
+            content = pf.read_text(encoding="utf-8", errors="replace")
+            ast.parse(content, filename=str(pf))
+        except SyntaxError as e:
+            errors.append((pf, f"SyntaxError on line {e.lineno}: {e.msg}"))
+    return errors
+
+
 @app.command()
 def scan(
     target: str = typer.Option(DEFAULT_TARGET, help="Target directory or .zip codebase to scan"),
@@ -80,6 +94,18 @@ def scan(
     target_dir = resolve_target_dir(target, root)
     rules_dir = root / rules
     output_dir = root / output
+
+    # Check AST syntax validity before running Semgrep
+    syntax_errors = validate_codebase_syntax(target_dir)
+    if syntax_errors:
+        console.print(Panel(
+            f"[bold red]⛔ CODEBASE FORMAT INVALID: {len(syntax_errors)} Syntax Error(s) Detected[/bold red]\n\n"
+            + "\n".join(f"[yellow]{pf.name}[/yellow]: [red]{err}[/red]" for pf, err in syntax_errors)
+            + "\n\n[bold white]No security tests, canary oracles, or patches will be generated for malformed code.[/bold white]",
+            title="Syntax Validation Failed",
+            border_style="red"
+        ))
+        raise typer.Exit(code=1)
 
     console.print(Panel("[bold]Stage 1: Scan[/bold]", style="blue"))
 
@@ -299,6 +325,18 @@ def demo(
     ))
 
     start_time = time.time()
+
+    # Verify AST syntax validity across codebase
+    syntax_errors = validate_codebase_syntax(target_dir)
+    if syntax_errors:
+        console.print(Panel(
+            f"[bold red]⛔ CODEBASE FORMAT INVALID: {len(syntax_errors)} Syntax Error(s) Detected[/bold red]\n\n"
+            + "\n".join(f"[yellow]{pf.name}[/yellow]: [red]{err}[/red]" for pf, err in syntax_errors)
+            + "\n\n[bold white]No security tests, canary oracles, or patches will be generated for malformed code.[/bold white]",
+            title="Syntax Validation Failed",
+            border_style="red"
+        ))
+        raise typer.Exit(code=1)
 
     # Stage 1: Scan
     console.print(Panel("[bold]Stage 1: Scan[/bold]", style="blue"))

@@ -2251,7 +2251,7 @@ def download():
             });
         }
 
-        // --- STRICT CODE SYNTAX & FORMAT VALIDATOR ---
+        // --- STRICT CODE SYNTAX & CROSS-LANGUAGE COMMAND VALIDATOR ---
         function validateCodeFormat(code, filename = 'code.py') {
             if (!code || typeof code !== 'string') {
                 return { valid: false, error: 'Empty input: No code provided.' };
@@ -2277,65 +2277,157 @@ def download():
                 };
             }
 
-            // 2. Pure non-code text / English words without Python syntax constructs
-            const pythonConstructs = [
-                /\bimport\s+[a-zA-Z_]/,
-                /\bfrom\s+[a-zA-Z_].*import\b/,
-                /\bdef\s+[a-zA-Z_]\w*\s*\(/,
-                /\bclass\s+[a-zA-Z_]\w*/,
-                /@[a-zA-Z_]\w*/,
-                /\b(?:return|if|elif|else|while|for|try|except|finally|with|raise|pass|yield|lambda|assert)\b/,
-                /^[a-zA-Z_]\w*\s*=\s*.+/m,
-                /\bprint\s*\(/,
-                /\b[a-zA-Z_]\w*\s*\(/
+            // 2. Command / CLI tool detections across operating systems
+            const shellCommandPatterns = [
+                /^(?:ls|dir|cat|ping|curl|wget|rm|cd|echo|grep|sudo|docker|npm|pnpm|yarn|git|chmod|chown|kill|killall|export|set|powershell|cmd|pip|python|npx|brew|apt|yum|ssh|scp|nc|netcat|traceroute|ifconfig|ipconfig)\s+/i,
+                /^(?:ls|dir|cat|ping|curl|wget|rm|cd|grep|sudo|docker|npm|pnpm|yarn|git|powershell|cmd|pip|python|npx|brew|apt|yum|ssh|ipconfig)$/i,
+                /^\$\s+[a-zA-Z]/,
+                /^>\s+[a-zA-Z]/
             ];
 
-            const hasPythonConstruct = pythonConstructs.some(regex => regex.test(code));
-            if (!hasPythonConstruct) {
-                return {
-                    valid: false,
-                    error: 'Format Error: Input does not contain any valid Python code constructs (no functions, imports, decorators, assignments, or control flow).'
-                };
-            }
+            // 3. Foreign programming language checks
+            const foreignLanguagePatterns = [
+                { regex: /\b(?:function\s+[a-zA-Z_]|var\s+[a-zA-Z_]|let\s+[a-zA-Z_]|const\s+[a-zA-Z_]|console\.log|document\.|window\.|===|!==|require\s*\(|module\.exports|export\s+default)/, lang: "JavaScript / TypeScript" },
+                { regex: /(?:#include\s+<|public\s+class\s+|public\s+static\s+void\s+|System\.out\.println|std::|cout\s*<<|using\s+namespace|int\s+main\s*\()/, lang: "C / C++ / Java" },
+                { regex: /(?:package\s+main|func\s+main\s*\(|fn\s+main\s*\(|println!\s*\(|let\s+mut\s+)/, lang: "Go / Rust" },
+                { regex: /(?:<\?php|echo\s+\$)/, lang: "PHP" },
+                { regex: /(?:<!DOCTYPE|<html|<script|<div[\s>])/, lang: "HTML / XML" }
+            ];
 
-            // 3. Balanced delimiter checks & statement format checks
-            let parens = 0, brackets = 0, braces = 0;
+            // 4. Tokenizer state machine to track strings, delimiters, and line syntax
             const lines = code.split('\n');
+            let parens = 0, brackets = 0, braces = 0;
+            let inTripleSingle = false, inTripleDouble = false;
+
             for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
                 const line = lines[lineIdx];
                 const lineTrim = line.trim();
-                if (lineTrim.length === 0 || lineTrim.startsWith('#')) continue;
+                const lineNum = lineIdx + 1;
 
-                // Check for JavaScript / C style keywords that are syntax errors in Python
-                if (/\b(?:function|var|let|const)\s+[a-zA-Z_]/.test(lineTrim) || lineTrim.includes('===') || lineTrim.includes('!==') || lineTrim.includes('console.log')) {
-                    return {
-                        valid: false,
-                        line: lineIdx + 1,
-                        error: `SyntaxError on line ${lineIdx + 1}: Detected non-Python syntax (JavaScript/C-style keyword). Python requires def, assignments, etc.`
-                    };
+                if (lineTrim.length === 0) continue;
+
+                // Check if inside triple-quoted multiline string
+                if (inTripleSingle) {
+                    if (line.includes("'''")) {
+                        inTripleSingle = false;
+                    }
+                    continue;
+                }
+                if (inTripleDouble) {
+                    if (line.includes('"""')) {
+                        inTripleDouble = false;
+                    }
+                    continue;
                 }
 
-                // Bare identifier check on standalone line (e.g. 'hi')
-                if (/^[a-zA-Z_]\w*$/.test(lineTrim) && !['pass', 'break', 'continue'].includes(lineTrim)) {
-                    return {
-                        valid: false,
-                        line: lineIdx + 1,
-                        error: `SyntaxError on line ${lineIdx + 1}: Bare token '${lineTrim}' is out of format order (missing assignment, function call, or operation).`
-                    };
-                }
-
-                if (lineTrim.startsWith('def ')) {
-                    const defValid = lineTrim.match(/^def\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*[^:]+)?\s*:/);
-                    if (!defValid) {
+                // Check for shell / CLI commands
+                for (const cmdPattern of shellCommandPatterns) {
+                    if (cmdPattern.test(lineTrim) && !lineTrim.includes('=') && !lineTrim.startsWith('#')) {
                         return {
                             valid: false,
-                            line: lineIdx + 1,
-                            error: `SyntaxError on line ${lineIdx + 1}: Malformed function definition '${lineTrim}'. Expected 'def function_name(args):'`
+                            line: lineNum,
+                            error: `SyntaxError on line ${lineNum}: Detected terminal/shell command '${lineTrim.slice(0, 30)}'. Only valid Python code (or .sql database schemas) can be executed.`
                         };
                     }
                 }
 
-                if (lineTrim.startsWith('@')) {
+                // Check for foreign language syntax
+                for (const foreign of foreignLanguagePatterns) {
+                    if (foreign.regex.test(lineTrim) && !lineTrim.startsWith('#')) {
+                        return {
+                            valid: false,
+                            line: lineNum,
+                            error: `SyntaxError on line ${lineNum}: Detected ${foreign.lang} syntax. Python code is required.`
+                        };
+                    }
+                }
+
+                // Tokenize line character-by-character to strictly handle strings, quotes, and brackets
+                let inSingle = false, inDouble = false;
+                let escaped = false;
+
+                for (let c = 0; c < line.length; c++) {
+                    const ch = line[c];
+                    const next2 = line.slice(c, c + 3);
+
+                    // Check for triple quotes
+                    if (!inSingle && !inDouble) {
+                        if (next2 === "'''") {
+                            inTripleSingle = !inTripleSingle;
+                            c += 2;
+                            continue;
+                        }
+                        if (next2 === '"""') {
+                            inTripleDouble = !inTripleDouble;
+                            c += 2;
+                            continue;
+                        }
+                    }
+
+                    if (escaped) {
+                        escaped = false;
+                        continue;
+                    }
+
+                    if (ch === '\\') {
+                        escaped = true;
+                        continue;
+                    }
+
+                    // Comment starts outside of string
+                    if (ch === '#' && !inSingle && !inDouble) {
+                        break;
+                    }
+
+                    if (ch === "'" && !inDouble) {
+                        inSingle = !inSingle;
+                        continue;
+                    }
+                    if (ch === '"' && !inSingle) {
+                        inDouble = !inDouble;
+                        continue;
+                    }
+
+                    // Only count code brackets outside of string literals
+                    if (!inSingle && !inDouble) {
+                        if (ch === '(') parens++;
+                        if (ch === ')') parens--;
+                        if (ch === '[') brackets++;
+                        if (ch === ']') brackets--;
+                        if (ch === '{') braces++;
+                        if (ch === '}') braces--;
+                    }
+                }
+
+                // Check for unterminated single-line string literal (e.g. print("hi))
+                if (inSingle) {
+                    return {
+                        valid: false,
+                        line: lineNum,
+                        error: `SyntaxError on line ${lineNum}: unterminated string literal (unclosed single quote ').`
+                    };
+                }
+                if (inDouble) {
+                    return {
+                        valid: false,
+                        line: lineNum,
+                        error: `SyntaxError on line ${lineNum}: unterminated string literal (unclosed double quote ").`
+                    };
+                }
+
+                // Check for missing colon on def, class, if, for, while, etc.
+                const cleanNoComment = lineTrim.split('#')[0].trim();
+                const startsWithKeyword = /^(?:def|class|if|elif|else|for|while|try|except|finally|with)\b/.test(cleanNoComment);
+                if (startsWithKeyword && !cleanNoComment.endsWith(':') && parens === 0 && brackets === 0) {
+                    return {
+                        valid: false,
+                        line: lineNum,
+                        error: `SyntaxError on line ${lineNum}: expected ':' at end of statement '${cleanNoComment.slice(0, 35)}'`
+                    };
+                }
+
+                // Check for decorator not followed by def/class
+                if (cleanNoComment.startsWith('@')) {
                     let followedByDef = false;
                     for (let nextIdx = lineIdx + 1; nextIdx < lines.length; nextIdx++) {
                         const nextLine = lines[nextIdx].trim();
@@ -2348,37 +2440,79 @@ def download():
                     if (!followedByDef) {
                         return {
                             valid: false,
-                            line: lineIdx + 1,
-                            error: `Format Error on line ${lineIdx + 1}: Decorator '${lineTrim}' is out of order. Decorators must immediately precede a function or class definition.`
+                            line: lineNum,
+                            error: `Format Error on line ${lineNum}: Decorator '${cleanNoComment}' is out of order. Decorators must immediately precede a function or class definition.`
                         };
                     }
                 }
 
-                let escaped = false;
-                for (let c = 0; c < line.length; c++) {
-                    const ch = line[c];
-                    if (ch === '\\') { escaped = !escaped; continue; }
-                    if (!escaped) {
-                        if (ch === '#') break;
-                        if (ch === '(') parens++;
-                        if (ch === ')') parens--;
-                        if (ch === '[') brackets++;
-                        if (ch === ']') brackets--;
-                        if (ch === '{') braces++;
-                        if (ch === '}') braces--;
+                // Bare identifier check on standalone line (e.g. 'hi')
+                if (/^[a-zA-Z_]\w*$/.test(cleanNoComment) && !['pass', 'break', 'continue'].includes(cleanNoComment)) {
+                    return {
+                        valid: false,
+                        line: lineNum,
+                        error: `SyntaxError on line ${lineNum}: Bare token '${cleanNoComment}' is out of format order (missing assignment, function call, or operation).`
+                    };
+                }
+
+                // Indentation check after colon
+                if (cleanNoComment.endsWith(':') && lineIdx < lines.length - 1) {
+                    let nextNonEmpty = null;
+                    let nextLineIdx = -1;
+                    for (let nextIdx = lineIdx + 1; nextIdx < lines.length; nextIdx++) {
+                        const nl = lines[nextIdx];
+                        if (nl.trim().length > 0 && !nl.trim().startsWith('#')) {
+                            nextNonEmpty = nl;
+                            nextLineIdx = nextIdx + 1;
+                            break;
+                        }
                     }
-                    escaped = false;
+                    if (nextNonEmpty && !/^\s+/.test(nextNonEmpty)) {
+                        return {
+                            valid: false,
+                            line: nextLineIdx,
+                            error: `IndentationError on line ${nextLineIdx}: expected an indented block after statement on line ${lineNum}.`
+                        };
+                    }
                 }
             }
 
-            if (parens !== 0) {
-                return { valid: false, error: "SyntaxError: Unmatched parentheses '()' in code." };
+            if (inTripleSingle || inTripleDouble) {
+                return {
+                    valid: false,
+                    error: "SyntaxError: EOF while scanning triple-quoted multiline string literal."
+                };
+            }
+            if (parens > 0) {
+                return { valid: false, error: `SyntaxError: Unclosed parenthesis '(' in code (missing ${parens} closing ')')` };
+            }
+            if (parens < 0) {
+                return { valid: false, error: `SyntaxError: Unmatched closing parenthesis ')' in code` };
             }
             if (brackets !== 0) {
                 return { valid: false, error: "SyntaxError: Unmatched square brackets '[]' in code." };
             }
             if (braces !== 0) {
                 return { valid: false, error: "SyntaxError: Unmatched curly braces '{}' in code." };
+            }
+
+            // 5. Must contain at least one valid Python construct
+            const pythonConstructs = [
+                /\bimport\s+[a-zA-Z_]/,
+                /\bfrom\s+[a-zA-Z_].*import\b/,
+                /\bdef\s+[a-zA-Z_]\w*\s*\(/,
+                /\bclass\s+[a-zA-Z_]\w*/,
+                /@[a-zA-Z_]\w*/,
+                /\b(?:return|if|elif|else|while|for|try|except|finally|with|raise|pass|yield|lambda|assert)\b/,
+                /^[a-zA-Z_]\w*\s*=\s*.+/m,
+                /\bprint\s*\(/,
+                /\b[a-zA-Z_]\w*\s*\(/
+            ];
+            if (!pythonConstructs.some(r => r.test(code))) {
+                return {
+                    valid: false,
+                    error: "Format Error: Input does not contain any valid Python code constructs (no functions, imports, decorators, assignments, or control flow)."
+                };
             }
 
             return { valid: true };
