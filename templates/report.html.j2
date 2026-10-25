@@ -1531,16 +1531,15 @@
             <div class="card-panel">
                 <div class="panel-header">
                     <h2><span>🧪</span> Interactive Vulnerability & Fix Simulation Sandbox</h2>
+                    <span id="simCodebaseBadge" class="pill pill-tag">Target: enterprise_db_app.zip</span>
                 </div>
                 <div style="padding: 1.5rem;">
                     <div class="sim-grid">
                         <div>
                             <div class="form-group">
-                                <label class="form-label">1. Select Target Vulnerability</label>
+                                <label class="form-label">1. Select Target Vulnerability & Route</label>
                                 <select class="form-select" id="simVulnSelect" onchange="onSimVulnChange()">
-                                    <option value="sqli">CWE-89: SQL Injection (/search?q=)</option>
-                                    <option value="cmdi">CWE-78: Command Injection (/ping?host=)</option>
-                                    <option value="pathtraversal">CWE-22: Path Traversal (/download?file=)</option>
+                                    <!-- Populated dynamically from codebase findings -->
                                 </select>
                             </div>
 
@@ -1613,6 +1612,51 @@
              VIEW 5: PIPELINE ARCHITECTURE SPECS
              ==================================================================== -->
         <section id="view-pipeline" class="view-panel">
+            <!-- Active Codebase Pipeline Profile Card -->
+            <div class="card-panel" style="margin-bottom: 1.5rem;">
+                <div class="panel-header">
+                    <h2><span>🎯</span> Target Codebase Pipeline Profile & Specifications</h2>
+                    <span id="pipelineTargetBadge" class="pill pill-fixed">enterprise_db_app.zip</span>
+                </div>
+                <div style="padding: 1.5rem;">
+                    <div class="kpi-grid" style="margin-bottom: 1.5rem;">
+                        <div class="kpi-card purple">
+                            <div class="kpi-label"><span>Target Project</span><span>📦</span></div>
+                            <div class="kpi-val" id="pipeTargetName" style="font-size: 1.1rem; word-break: break-all;">enterprise_db_app.zip</div>
+                            <div class="kpi-sub" id="pipeTargetFiles">4 files loaded</div>
+                        </div>
+                        <div class="kpi-card red">
+                            <div class="kpi-label"><span>Vulnerability Vectors</span><span>🎯</span></div>
+                            <div class="kpi-val" id="pipeTargetVulns">3</div>
+                            <div class="kpi-sub" id="pipeTargetCwes">CWE-89, CWE-78, CWE-22</div>
+                        </div>
+                        <div class="kpi-card green">
+                            <div class="kpi-label"><span>Canaries Seeded</span><span>🐤</span></div>
+                            <div class="kpi-val" id="pipeTargetCanaries">3 Oracles</div>
+                            <div class="kpi-sub" id="pipeCanarySub">Tamper-evident tokens</div>
+                        </div>
+                        <div class="kpi-card amber">
+                            <div class="kpi-label"><span>Synthesized Tests</span><span>🧪</span></div>
+                            <div class="kpi-val" id="pipeTargetTests">3 pytest files</div>
+                            <div class="kpi-sub" id="pipeTestSub">Near-miss bypass banks</div>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div style="background: var(--surface-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                            <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin-bottom: 0.5rem;">AST Entrypoint & Parameter Mapping</h4>
+                            <div id="pipeEndpointList" style="font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                            </div>
+                        </div>
+                        <div style="background: var(--surface-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                            <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--accent-green); margin-bottom: 0.5rem;">Remediation & Mutation Matrix</h4>
+                            <div id="pipeRemediationList" style="font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="card-panel">
                 <div class="panel-header">
                     <h2><span>⚙️</span> The 7-Stage Closed Loop Architecture</h2>
@@ -2522,6 +2566,11 @@ def download():
             updateRuleBadge('ruleCardPath', 'ruleStatusPath', hasPath, 'CWE-22 Detected');
 
             document.getElementById('navFindingsCount').textContent = count;
+
+            // Immediately synchronize all other views to match this codebase
+            renderDynamicReports(dynamicFindings);
+            renderDynamicSimulator();
+            renderDynamicPipelineSpecs();
         }
 
         function onCodeInputChanged() {
@@ -3219,54 +3268,149 @@ test_${f.param}_does_not_leak.py .                                        [100%]
             document.documentElement.classList.toggle('dark');
         }
 
-        // --- SIMULATOR LOGIC ---
+        // --- DYNAMIC SIMULATOR LOGIC MATCHING UPLOADED CODE ---
         let currentSimState = 'vuln';
-        const simPayloads = {
-            sqli: [
-                { label: "Legitimate: alice", val: "alice" },
-                { label: "Exploit: ' OR '1'='1' --", val: "' OR '1'='1' --" },
-                { label: "Bypass: ' OR '1'='1' /*", val: "' OR '1'='1' /*" },
-                { label: "Union: x' UNION SELECT name, role FROM users --", val: "x' UNION SELECT name, role FROM users --" }
-            ],
-            cmdi: [
-                { label: "Legitimate: 127.0.0.1", val: "127.0.0.1" },
-                { label: "Exploit: 127.0.0.1; echo PP_CANARY_CMDI", val: "127.0.0.1; echo PP_CANARY_CMDI" },
-                { label: "Bypass: $(echo PP_CANARY_CMDI)", val: "$(echo PP_CANARY_CMDI)" },
-                { label: "Pipe: 127.0.0.1 | echo PP_CANARY_CMDI", val: "127.0.0.1 | echo PP_CANARY_CMDI" }
-            ],
-            pathtraversal: [
-                { label: "Legitimate: readme.txt", val: "readme.txt" },
-                { label: "Exploit: ../../secrets/secret.txt", val: "../../secrets/secret.txt" },
-                { label: "Bypass: ....//secrets/secret.txt", val: "....//secrets/secret.txt" },
-                { label: "Nested: ..\\..\\secrets\\secret.txt", val: "..\\..\\secrets\\secret.txt" }
-            ]
-        };
+
+        function renderDynamicSimulator() {
+            const badge = document.getElementById('simCodebaseBadge');
+            if (badge) {
+                badge.textContent = `Target: ${currentProject.name} (${dynamicFindings.length} Finding${dynamicFindings.length === 1 ? '' : 's'})`;
+            }
+
+            const select = document.getElementById('simVulnSelect');
+            if (!select) return;
+            select.innerHTML = '';
+
+            if (dynamicFindings.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = 'clean';
+                opt.textContent = `🛡️ Clean Application Target: ${currentProject.name} (0 Vulnerability Vectors)`;
+                select.appendChild(opt);
+            } else {
+                dynamicFindings.forEach((f, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = idx.toString();
+                    opt.textContent = `[${f.cwe}] ${f.name} — ${f.file}:${f.func}() (${f.method} ${f.route}?${f.param}=)`;
+                    select.appendChild(opt);
+                });
+            }
+
+            onSimVulnChange();
+        }
 
         function onSimVulnChange() {
-            const v = document.getElementById('simVulnSelect').value;
-            const select = document.getElementById('simPresetPayload');
-            select.innerHTML = '';
-            simPayloads[v].forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.val;
-                opt.textContent = p.label;
-                select.appendChild(opt);
-            });
+            const select = document.getElementById('simVulnSelect');
+            if (!select) return;
+            const v = select.value;
+            const presetSelect = document.getElementById('simPresetPayload');
+            if (!presetSelect) return;
+            presetSelect.innerHTML = '';
+
+            const reqLine = document.getElementById('simRequestLine');
+            const execCode = document.getElementById('simExecutionCode');
+            const respBody = document.getElementById('simResponseBody');
+            const statusCode = document.getElementById('simStatusCode');
+            const verdict = document.getElementById('simVerdictBanner');
+
+            statusCode.textContent = "Status: Ready";
+            statusCode.className = "pill pill-tag";
+
+            if (v === 'clean' || dynamicFindings.length === 0) {
+                const cleanPresets = [
+                    { label: "Legitimate: 'standard_user_input'", val: "standard_user_input" },
+                    { label: "Attack Test: SQL Tautology (' OR '1'='1' --)", val: "' OR '1'='1' --" },
+                    { label: "Attack Test: Command Injection (127.0.0.1; whoami)", val: "127.0.0.1; whoami" },
+                    { label: "Attack Test: Directory Traversal (../../etc/passwd)", val: "../../etc/passwd" }
+                ];
+                cleanPresets.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.val;
+                    opt.textContent = p.label;
+                    presetSelect.appendChild(opt);
+                });
+                reqLine.textContent = `POST /api/entrypoint (Content-Type: application/json)`;
+                execCode.textContent = `# Target: ${currentProject.name}\n# Clean codebase: 0 taint findings identified.\n# All data inputs are processed with safe parameters or schema validation.`;
+                respBody.textContent = `{\n  "target": "${currentProject.name}",\n  "status": "clean",\n  "taint_sinks": 0\n}`;
+                verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                verdict.style.color = "var(--accent-blue)";
+                verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                verdict.textContent = "Clean codebase loaded. Select a test payload and click Execute to test defense.";
+            } else {
+                const idx = parseInt(v, 10);
+                const f = dynamicFindings[idx] || dynamicFindings[0];
+                if (!f) return;
+
+                let payloads = [];
+                if (f.cwe === "CWE-89") {
+                    const normalVal = f.param === 'password' ? 'hunter2' : (f.param === 'username' ? 'alice' : 'search_term');
+                    payloads = [
+                        { label: `Legitimate: ${normalVal}`, val: normalVal },
+                        { label: `Exploit (Tautology): ' OR '1'='1' --`, val: `' OR '1'='1' --` },
+                        { label: `Bypass (Mutant Bypass): ' OR '1'='1' /*`, val: `' OR '1'='1' /*` },
+                        { label: `Union Exfil: ' UNION SELECT 1, '${f.canary}', 'admin' --`, val: `' UNION SELECT 1, '${f.canary}', 'admin' --` }
+                    ];
+                } else if (f.cwe === "CWE-78") {
+                    payloads = [
+                        { label: "Legitimate: 127.0.0.1", val: "127.0.0.1" },
+                        { label: `Exploit (Metacharacter): 127.0.0.1; echo ${f.canary}`, val: `127.0.0.1; echo ${f.canary}` },
+                        { label: `Bypass (Subshell): $(echo ${f.canary})`, val: `$(echo ${f.canary})` },
+                        { label: `Chained (Pipe): 127.0.0.1 | echo ${f.canary}`, val: `127.0.0.1 | echo ${f.canary}` }
+                    ];
+                } else if (f.cwe === "CWE-22") {
+                    payloads = [
+                        { label: "Legitimate: report.txt", val: "report.txt" },
+                        { label: `Exploit (Directory Esc): ../../secrets/${f.canary}.txt`, val: `../../secrets/${f.canary}.txt` },
+                        { label: `Bypass (Nested Sequence): ....//secrets/${f.canary}.txt`, val: `....//secrets/${f.canary}.txt` },
+                        { label: `Windows Traversal: ..\\..\\secrets\\${f.canary}.txt`, val: `..\\..\\secrets\\${f.canary}.txt` }
+                    ];
+                } else {
+                    payloads = [
+                        { label: "Legitimate: sample_data", val: "sample_data" },
+                        { label: `Exploit: exploit_${f.canary}`, val: `exploit_${f.canary}` },
+                        { label: `Bypass: bypass_${f.canary}`, val: `bypass_${f.canary}` }
+                    ];
+                }
+
+                payloads.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.val;
+                    opt.textContent = p.label;
+                    presetSelect.appendChild(opt);
+                });
+
+                if (f.method === 'POST') {
+                    reqLine.textContent = `POST ${f.route} (Body: ${f.param}=${encodeURIComponent(payloads[0].val)})`;
+                } else {
+                    reqLine.textContent = `${f.method} ${f.route}?${f.param}=${encodeURIComponent(payloads[0].val)}`;
+                }
+
+                execCode.textContent = `# Handler: ${f.file}:${f.func}()\n${f.sink_code}`;
+                respBody.textContent = `{\n  "endpoint": "${f.route}",\n  "method": "${f.method}",\n  "param": "${f.param}",\n  "status": "ready"\n}`;
+                verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                verdict.style.color = "var(--accent-blue)";
+                verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                verdict.textContent = `Target: [${f.cwe}] in ${f.file}. Select code state and click Execute.`;
+            }
+
             onSimPresetChange();
         }
 
         function onSimPresetChange() {
-            document.getElementById('simCustomPayload').value = document.getElementById('simPresetPayload').value;
+            const presetSelect = document.getElementById('simPresetPayload');
+            const customInput = document.getElementById('simCustomPayload');
+            if (presetSelect && customInput) {
+                customInput.value = presetSelect.value;
+            }
         }
 
         function setSimState(state, card) {
             currentSimState = state;
             document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('active'));
-            card.classList.add('active');
+            if (card) card.classList.add('active');
         }
 
         function runAttackSimulation() {
-            const vuln = document.getElementById('simVulnSelect').value;
+            const vulnVal = document.getElementById('simVulnSelect').value;
             const payload = document.getElementById('simCustomPayload').value || 'test';
             const state = currentSimState;
 
@@ -3276,169 +3420,291 @@ test_${f.param}_does_not_leak.py .                                        [100%]
             const statusCode = document.getElementById('simStatusCode');
             const verdict = document.getElementById('simVerdictBanner');
 
-            if (vuln === 'sqli') {
-                reqLine.textContent = `GET /search?q=${encodeURIComponent(payload)}`;
+            if (vulnVal === 'clean' || dynamicFindings.length === 0) {
+                reqLine.textContent = `POST /api/entrypoint (Body: input=${encodeURIComponent(payload)})`;
+                execCode.textContent = `# Clean Application Execution (${currentProject.name})\n# Sanitized input or prepared statement handled: input = ${JSON.stringify(payload)}`;
+                statusCode.textContent = "200 OK";
+                statusCode.className = "pill pill-pass";
+                respBody.textContent = JSON.stringify({
+                    status: "success",
+                    received_data: payload,
+                    target_status: "CLEAN",
+                    injection_executed: false
+                }, null, 2);
+                verdict.style.background = "rgba(16, 185, 129, 0.15)";
+                verdict.style.color = "#10b981";
+                verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
+                verdict.textContent = `🛡️ CODEBASE CLEAN: Payload safely processed without error. No vulnerable sinks exist in ${currentProject.name}!`;
+                return;
+            }
+
+            const idx = parseInt(vulnVal, 10);
+            const f = dynamicFindings[idx] || dynamicFindings[0];
+
+            if (f.method === 'POST') {
+                reqLine.textContent = `POST ${f.route} (Body: ${f.param}=${encodeURIComponent(payload)})`;
+            } else {
+                reqLine.textContent = `${f.method} ${f.route}?${f.param}=${encodeURIComponent(payload)}`;
+            }
+
+            if (f.cwe === "CWE-89") {
                 if (state === 'vuln') {
-                    execCode.textContent = `query = f"SELECT name, role FROM users WHERE name LIKE '%${payload}%'"\ncursor.execute(query)`;
-                    if (payload.includes("'") || payload.includes("--")) {
+                    execCode.textContent = `// In ${f.file}:${f.sink_line} (${f.func})\n${f.sink_code.replace(new RegExp(f.param, 'g'), JSON.stringify(payload))}`;
+                    if (payload.includes("'") || payload.includes("--") || payload.includes("/*") || payload.toLowerCase().includes("union")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
                         respBody.textContent = JSON.stringify({
-                            query: payload,
+                            status: "authenticated",
+                            database_table: f.db_table || "users",
+                            query_executed: `SELECT ... WHERE ${f.param} = '${payload}'`,
                             results: [
-                                {"name": "alice", "role": "user"},
-                                {"name": "bob", "role": "user"},
-                                {"name": "PP_CANARY_SQLI_8f2a", "role": "canary"}
+                                { id: 1, username: "admin", role: "superuser" },
+                                { id: 2, username: "alice", role: "engineer" },
+                                { id: 99, username: f.canary, role: "canary_oracle", leaked: true }
                             ]
                         }, null, 2);
                         verdict.style.background = "rgba(244, 63, 94, 0.15)";
                         verdict.style.color = "#f43f5e";
                         verdict.style.borderColor = "rgba(244, 63, 94, 0.4)";
-                        verdict.textContent = "🚨 EXPLOIT SUCCESSFUL! Secret canary 'PP_CANARY_SQLI_8f2a' leaked. (Red Run Confirmed)";
+                        verdict.textContent = `🚨 EXPLOIT SUCCESSFUL! Database executed unescaped SQL. Canary '${f.canary}' leaked from '${f.db_table || 'users'}' table. (Red Run Confirmed)`;
                     } else {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = JSON.stringify({ query: payload, results: [{"name": "alice", "role": "user"}] }, null, 2);
-                        verdict.textContent = "ℹ️ Normal search result returned.";
+                        respBody.textContent = JSON.stringify({
+                            status: "success",
+                            results: [{ id: 2, username: payload, role: "user" }]
+                        }, null, 2);
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                        verdict.textContent = `ℹ️ Standard database query returned record for '${payload}'.`;
                     }
                 } else if (state === 'mutant') {
-                    const filtered = payload.replace(/--/g, '');
-                    execCode.textContent = `# MUTANT: q_filtered = q.replace('--', '')\nquery = f"SELECT ... '%${filtered}%'"\ncursor.execute(query)`;
-                    if (payload.includes("/*") || (payload.includes("'") && !payload.includes("--"))) {
+                    const stripped = payload.replace(/--/g, '');
+                    execCode.textContent = `# MUTANT (Weak Blacklist in ${f.file}):\n# ${f.param}_filtered = ${f.param}.replace('--', '')\nquery = f"SELECT ... '%${stripped}%'"\ncursor.execute(query)`;
+                    if (payload.includes("/*") || (payload.includes("'") && !payload.includes("--")) || payload.toLowerCase().includes("union")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
                         respBody.textContent = JSON.stringify({
-                            query: payload,
-                            results: [
-                                {"name": "alice", "role": "user"},
-                                {"name": "bob", "role": "user"},
-                                {"name": "PP_CANARY_SQLI_8f2a", "role": "canary"}
-                            ]
+                            status: "authenticated",
+                            results: [{ id: 99, username: f.canary, role: "canary_oracle" }],
+                            mutant_test: "MUTANT KILLED BY PATCHPROOF TEST SUITE"
                         }, null, 2);
                         verdict.style.background = "rgba(245, 158, 11, 0.15)";
                         verdict.style.color = "#f59e0b";
                         verdict.style.borderColor = "rgba(245, 158, 11, 0.4)";
-                        verdict.textContent = "⚠️ BYPASS DETECTED! Naive '--' filter bypassed with inline syntax. Mutant KILLED by PatchProof.";
+                        verdict.textContent = `⚠️ BYPASS DETECTED! Naive '--' filter bypassed using inline comment or tautology. Mutant KILLED by PatchProof regression tests!`;
                     } else {
                         statusCode.textContent = "200 OK";
-                        respBody.textContent = `{"query": "${payload}", "results": []}`;
-                        verdict.textContent = "Naive filter stopped standard payload, but vulnerable to bypass.";
+                        statusCode.className = "pill pill-pass";
+                        respBody.textContent = `{"status": "blocked_or_empty", "results": []}`;
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                        verdict.textContent = `Naive filter stripped standard comment, but remains vulnerable to bypass bank.`;
                     }
                 } else {
-                    execCode.textContent = `# FIXED: cursor.execute("SELECT name, role FROM users WHERE name LIKE ?", (f"%{q}%",))`;
+                    execCode.textContent = `# FIXED (In ${f.file}):\n# Prepared statement placeholder parameterization (PatchProof)\ncursor.execute("SELECT * FROM ${f.db_table || 'users'} WHERE ${f.param} = ?", (${f.param},))`;
                     statusCode.textContent = "200 OK";
                     statusCode.className = "pill pill-pass";
-                    respBody.textContent = JSON.stringify({ query: payload, results: [] }, null, 2);
+                    respBody.textContent = JSON.stringify({
+                        status: "success",
+                        matched_rows: 0,
+                        sanitization: "Input treated as literal parameter string. No SQL injection possible."
+                    }, null, 2);
                     verdict.style.background = "rgba(16, 185, 129, 0.15)";
                     verdict.style.color = "#10b981";
                     verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
-                    verdict.textContent = "🛡️ ATTACK BLOCKED! Parameterized query treated input as literal string. Canary safe.";
+                    verdict.textContent = `🛡️ ATTACK DEFLECTED! Parameterized query treated input as literal value. Canary '${f.canary}' safe. (Green Run Verified)`;
                 }
-            } else if (vuln === 'cmdi') {
-                reqLine.textContent = `GET /ping?host=${encodeURIComponent(payload)}`;
+            } else if (f.cwe === "CWE-78") {
                 if (state === 'vuln') {
-                    execCode.textContent = `cmd = f"ping -c 1 ${payload}"\nsubprocess.run(cmd, shell=True)`;
-                    if (payload.includes(";") || payload.includes("$") || payload.includes("|") || payload.includes("&&")) {
+                    execCode.textContent = `// In ${f.file}:${f.sink_line} (${f.func})\ncmd = f"ping -c 1 {${payload}}"\nsubprocess.run(cmd, shell=True)`;
+                    if (payload.includes(";") || payload.includes("$") || payload.includes("|") || payload.includes("&&") || payload.includes("`")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
                         respBody.textContent = JSON.stringify({
-                            host: payload,
-                            stdout: "PING 127.0.0.1 (127.0.0.1) 56(84) bytes\nPP_CANARY_CMDI\n"
+                            target: payload,
+                            stdout: `PING 127.0.0.1 (127.0.0.1) 56(84) bytes.\n${f.canary}\nuid=1000(app) gid=1000(app)`
                         }, null, 2);
                         verdict.style.background = "rgba(244, 63, 94, 0.15)";
                         verdict.style.color = "#f43f5e";
                         verdict.style.borderColor = "rgba(244, 63, 94, 0.4)";
-                        verdict.textContent = "🚨 EXPLOIT SUCCESSFUL! Shell injected command executed canary: 'PP_CANARY_CMDI'.";
+                        verdict.textContent = `🚨 EXPLOIT SUCCESSFUL! Shell injected command executed canary: '${f.canary}'. (Red Run Confirmed)`;
                     } else {
                         statusCode.textContent = "200 OK";
-                        respBody.textContent = JSON.stringify({ host: payload, stdout: "Reply from 127.0.0.1: bytes=32 time<1ms" }, null, 2);
-                        verdict.textContent = "Standard ping response.";
+                        statusCode.className = "pill pill-pass";
+                        respBody.textContent = JSON.stringify({ target: payload, stdout: `Reply from ${payload}: time=0.8ms` }, null, 2);
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                        verdict.textContent = "Standard diagnostic ping response returned.";
                     }
                 } else if (state === 'mutant') {
-                    execCode.textContent = `# MUTANT: if ';' in host: return 400\ncmd = f"ping {payload}"\nsubprocess.run(cmd, shell=True)`;
+                    execCode.textContent = `# MUTANT (Weak Semicolon Blacklist in ${f.file}):\nif ';' in ${f.param}:\n    return jsonify({"error": "Invalid host"}), 400\nsubprocess.run(f"ping -c 1 {${f.param}}", shell=True)`;
                     if (payload.includes(";") && !payload.includes("$") && !payload.includes("|")) {
                         statusCode.textContent = "400 Bad Request";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = '{"error": "Invalid host"}';
-                        verdict.textContent = "Blocked semicolon, but test checks $(cmd) bypass.";
-                    } else if (payload.includes("$") || payload.includes("|")) {
+                        respBody.textContent = `{"error": "Invalid host"}`;
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                        verdict.textContent = "Blocked raw semicolon, but mutant bypass bank verifies $() and pipe.";
+                    } else if (payload.includes("$") || payload.includes("|") || payload.includes("`")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
-                        respBody.textContent = JSON.stringify({ host: payload, stdout: "PP_CANARY_CMDI\n" }, null, 2);
+                        respBody.textContent = JSON.stringify({ target: payload, stdout: `${f.canary}\n`, mutant_status: "KILLED" }, null, 2);
                         verdict.style.background = "rgba(245, 158, 11, 0.15)";
                         verdict.style.color = "#f59e0b";
                         verdict.style.borderColor = "rgba(245, 158, 11, 0.4)";
-                        verdict.textContent = "⚠️ BYPASS DETECTED! Semicolon blacklist defeated via $() command substitution. Mutant KILLED.";
+                        verdict.textContent = `⚠️ BYPASS DETECTED! Semicolon blacklist defeated via $() command substitution. Mutant KILLED by PatchProof!`;
+                    } else {
+                        statusCode.textContent = "200 OK";
+                        statusCode.className = "pill pill-pass";
+                        respBody.textContent = JSON.stringify({ target: payload, stdout: "Reply from 127.0.0.1" }, null, 2);
+                        verdict.textContent = "Standard ping response.";
                     }
                 } else {
-                    execCode.textContent = `# FIXED: re.match(r'^[a-zA-Z0-9.-]+$', host) and subprocess.run(['ping', host], shell=False)`;
+                    execCode.textContent = `# FIXED (In ${f.file}):\n# Regex validation & argument vector with shell=False (PatchProof)\nimport re\nif not re.match(r'^[a-zA-Z0-9.\\-]+$', ${f.param}):\n    return jsonify({"error": "Invalid host format"}), 400\nsubprocess.run(["ping", "-c", "1", ${f.param}], capture_output=True, text=True)`;
                     if (/^[a-zA-Z0-9.\-]+$/.test(payload)) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = JSON.stringify({ host: payload, stdout: "Ping successful." }, null, 2);
+                        respBody.textContent = JSON.stringify({ target: payload, stdout: "Diagnostic ping executed safely with shell=False." }, null, 2);
                         verdict.style.background = "rgba(16, 185, 129, 0.15)";
                         verdict.style.color = "#10b981";
                         verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
-                        verdict.textContent = "🛡️ Valid host executed safely with shell=False. Injections impossible.";
+                        verdict.textContent = `🛡️ Valid host executed safely with shell=False. Injections impossible. (Green Run Passed)`;
                     } else {
                         statusCode.textContent = "400 Bad Request";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = '{"error": "Invalid host"}';
+                        respBody.textContent = `{"error": "Invalid host format"}`;
                         verdict.style.background = "rgba(16, 185, 129, 0.15)";
                         verdict.style.color = "#10b981";
                         verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
-                        verdict.textContent = "🛡️ ATTACK BLOCKED! Strict regex rejected unvalidated host with HTTP 400.";
+                        verdict.textContent = `🛡️ ATTACK BLOCKED! Strict regex rejected unvalidated host with HTTP 400. Zero command execution.`;
                     }
                 }
-            } else if (vuln === 'pathtraversal') {
-                reqLine.textContent = `GET /download?file=${encodeURIComponent(payload)}`;
+            } else if (f.cwe === "CWE-22") {
                 if (state === 'vuln') {
-                    execCode.textContent = `filepath = os.path.join(PUBLIC_DIR, filename)\nreturn send_file(filepath)`;
+                    execCode.textContent = `// In ${f.file}:${f.sink_line} (${f.func})\nfilepath = os.path.join(ARCHIVE_DIR, ${f.param})\nreturn send_file(filepath)`;
                     if (payload.includes("..")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
-                        respBody.textContent = "PP_CANARY_PATHTRAVERSAL_3d7b\n";
+                        respBody.textContent = `[CONFIDENTIAL SECRETS DUMP]\nCANARY_TOKEN=${f.canary}\nSYSTEM_KEY=d7f2a18b9c\nAccess permitted to unauthorized path.`;
                         verdict.style.background = "rgba(244, 63, 94, 0.15)";
                         verdict.style.color = "#f43f5e";
                         verdict.style.borderColor = "rgba(244, 63, 94, 0.4)";
-                        verdict.textContent = "🚨 EXPLOIT SUCCESSFUL! Arbitrary file read exposed 'PP_CANARY_PATHTRAVERSAL_3d7b'.";
+                        verdict.textContent = `🚨 EXPLOIT SUCCESSFUL! Arbitrary file read exposed confidential canary: '${f.canary}'. (Red Run Confirmed)`;
                     } else {
                         statusCode.textContent = "200 OK";
-                        respBody.textContent = "This is a public file.\n";
-                        verdict.textContent = "Public file read.";
+                        statusCode.className = "pill pill-pass";
+                        respBody.textContent = `Public file content for: ${payload}`;
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
+                        verdict.textContent = "Public file read safely within directory.";
                     }
                 } else if (state === 'mutant') {
                     const stripped = payload.replace(/\.\.\//g, '');
-                    execCode.textContent = `# MUTANT: filename.replace('../', '')\nfilepath = os.path.join(PUBLIC_DIR, "${stripped}")`;
-                    if (payload.includes("....//")) {
+                    execCode.textContent = `# MUTANT (In ${f.file}):\n# ${f.param}_clean = ${f.param}.replace('../', '')\nfilepath = os.path.join(ARCHIVE_DIR, "${stripped}")`;
+                    if (payload.includes("....//") || payload.includes("..\\")) {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-fail";
-                        respBody.textContent = "PP_CANARY_PATHTRAVERSAL_3d7b\n";
+                        respBody.textContent = `[CONFIDENTIAL FILE READ VIA BYPASS]\nCANARY_TOKEN=${f.canary}\nMutant KILLED!`;
                         verdict.style.background = "rgba(245, 158, 11, 0.15)";
                         verdict.style.color = "#f59e0b";
                         verdict.style.borderColor = "rgba(245, 158, 11, 0.4)";
-                        verdict.textContent = "⚠️ BYPASS DETECTED! '....//' collapsed into '../' after single strip. Mutant KILLED.";
+                        verdict.textContent = `⚠️ BYPASS DETECTED! '....//' collapsed into '../' after single strip. Mutant KILLED by PatchProof!`;
                     } else {
                         statusCode.textContent = "404 Not Found";
-                        respBody.textContent = '{"error": "File not found"}';
+                        statusCode.className = "pill pill-pass";
+                        respBody.textContent = `{"error": "File not found"}`;
+                        verdict.style.background = "rgba(56, 189, 248, 0.1)";
+                        verdict.style.color = "var(--accent-blue)";
+                        verdict.style.borderColor = "rgba(56, 189, 248, 0.3)";
                         verdict.textContent = "Standard traversal stripped, but vulnerable to nested sequences.";
                     }
                 } else {
-                    execCode.textContent = `# FIXED: filepath = safe_join(PUBLIC_DIR, filename)\nif not realpath(filepath).startswith(realpath(PUBLIC_DIR)): return 403`;
+                    execCode.textContent = `# FIXED (In ${f.file}):\n# safe_join and realpath boundary confinement (PatchProof)\nfrom werkzeug.utils import safe_join\nfilepath = safe_join(ARCHIVE_DIR, ${f.param})\nif filepath is None or not os.path.realpath(filepath).startswith(os.path.realpath(ARCHIVE_DIR)):\n    return jsonify({"error": "Access denied"}), 403\nreturn send_file(filepath)`;
                     if (payload.includes("..")) {
                         statusCode.textContent = "403 Forbidden";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = '{"error": "Access denied"}';
+                        respBody.textContent = `{"error": "Access denied"}`;
                         verdict.style.background = "rgba(16, 185, 129, 0.15)";
                         verdict.style.color = "#10b981";
                         verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
-                        verdict.textContent = "🛡️ ATTACK BLOCKED! safe_join and realpath boundary check returned 403 Forbidden.";
+                        verdict.textContent = `🛡️ ATTACK BLOCKED! safe_join and realpath boundary check returned 403 Forbidden. Traversal thwarted.`;
                     } else {
                         statusCode.textContent = "200 OK";
                         statusCode.className = "pill pill-pass";
-                        respBody.textContent = "This is a public file.\n";
+                        respBody.textContent = `Authorized public file returned safely for '${payload}'.`;
+                        verdict.style.background = "rgba(16, 185, 129, 0.15)";
+                        verdict.style.color = "#10b981";
+                        verdict.style.borderColor = "rgba(16, 185, 129, 0.4)";
                         verdict.textContent = "Legitimate public file returned safely.";
                     }
+                }
+            }
+        }
+
+        // --- DYNAMIC PIPELINE SPECS MATCHING UPLOADED CODE ---
+        function renderDynamicPipelineSpecs() {
+            const badge = document.getElementById('pipelineTargetBadge');
+            if (badge) badge.textContent = `${currentProject.name}`;
+
+            const targetName = document.getElementById('pipeTargetName');
+            if (targetName) targetName.textContent = currentProject.name;
+
+            const fileCount = Object.keys(currentProject.files).length;
+            const targetFiles = document.getElementById('pipeTargetFiles');
+            if (targetFiles) targetFiles.textContent = `${fileCount} file${fileCount > 1 ? 's' : ''} loaded`;
+
+            const count = dynamicFindings.length;
+            const targetVulns = document.getElementById('pipeTargetVulns');
+            if (targetVulns) targetVulns.textContent = count === 0 ? '0 (Clean)' : count.toString();
+
+            const targetCwes = document.getElementById('pipeTargetCwes');
+            if (targetCwes) {
+                if (count === 0) {
+                    targetCwes.textContent = 'All taint checks passing';
+                } else {
+                    const cwes = [...new Set(dynamicFindings.map(f => f.cwe))].join(', ');
+                    targetCwes.textContent = cwes;
+                }
+            }
+
+            const targetCanaries = document.getElementById('pipeTargetCanaries');
+            if (targetCanaries) targetCanaries.textContent = count === 0 ? '0 Oracles' : `${count} Oracles Seeded`;
+
+            const targetTests = document.getElementById('pipeTargetTests');
+            if (targetTests) targetTests.textContent = count === 0 ? '0 Regression Tests' : `${count} pytest Test Suites`;
+
+            const endpointList = document.getElementById('pipeEndpointList');
+            if (endpointList) {
+                if (count === 0) {
+                    endpointList.innerHTML = `<div style="color: var(--accent-green);">✓ All AST entrypoints and functions verify safe dataflow handling.</div>`;
+                } else {
+                    endpointList.innerHTML = dynamicFindings.map((f, i) => `
+                        <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.05));">
+                            <span style="color: var(--accent-blue); font-weight: 700;">${i+1}. [${f.cwe}]</span>
+                            <span style="color: var(--text-main); font-weight: 600;">${f.method} ${f.route}</span>
+                            <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Source Param: <code>${f.param}</code> | Function: <code>${f.func}()</code> in <code>${f.file}:${f.sink_line}</code></div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            const remediationList = document.getElementById('pipeRemediationList');
+            if (remediationList) {
+                if (count === 0) {
+                    remediationList.innerHTML = `<div style="color: var(--accent-green);">✓ Zero mutations or patches needed. Codebase adheres to secure taint specifications.</div>`;
+                } else {
+                    remediationList.innerHTML = dynamicFindings.map((f, i) => `
+                        <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.05));">
+                            <span style="color: var(--accent-green); font-weight: 700;">${i+1}. ${f.solution_title}</span>
+                            <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Mutant Defeated: <em>${f.bad_fix_title}</em> | Canary Oracle: <code>${f.canary}</code></div>
+                        </div>
+                    `).join('');
                 }
             }
         }
@@ -3446,7 +3712,6 @@ test_${f.param}_does_not_leak.py .                                        [100%]
         // Initialize on load
         document.addEventListener('DOMContentLoaded', () => {
             loadPreset('multidb');
-            onSimVulnChange();
         });
     </script>
 </body>
