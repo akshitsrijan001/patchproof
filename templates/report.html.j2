@@ -2253,15 +2253,22 @@ def download():
 
         // --- STRICT CODE SYNTAX & CROSS-LANGUAGE COMMAND VALIDATOR ---
         function validateCodeFormat(code, filename = 'code.py') {
-            if (!code || typeof code !== 'string') {
+            if (typeof code !== 'string') {
                 return { valid: false, error: 'Empty input: No code provided.' };
             }
             const trimmed = code.trim();
+            const normalizedFile = filename.replace(/\\/g, '/');
+
+            // Python package initialization files can be empty or pure comments
+            if (normalizedFile.endsWith('__init__.py')) {
+                return { valid: true };
+            }
+
             if (trimmed.length === 0) {
                 return { valid: false, error: 'Empty input: No code provided.' };
             }
 
-            if (filename.endsWith('.sql')) {
+            if (normalizedFile.endsWith('.sql')) {
                 const hasSql = /\b(CREATE|SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|TABLE)\b/i.test(trimmed);
                 if (!hasSql) {
                     return { valid: false, error: 'Invalid SQL format: No valid SQL statements (CREATE, SELECT, TABLE, etc.) detected.' };
@@ -2270,11 +2277,14 @@ def download():
             }
 
             // 1. Trivial length or single bare word / non-code keyword check (e.g. 'hi')
+            const allowedStandaloneTokens = ['pass', 'break', 'continue', 'return', 'yield', 'raise', 'None', 'True', 'False', '...', 'Ellipsis'];
             if (trimmed.length < 5 || (!trimmed.includes('\n') && /^[a-zA-Z0-9_\s]+$/.test(trimmed) && !trimmed.startsWith('import ') && !trimmed.startsWith('from ') && !trimmed.startsWith('def ') && !trimmed.startsWith('class '))) {
-                return {
-                    valid: false,
-                    error: `Invalid syntax: Bare keyword '${trimmed}' is not a valid Python script or web handler. Missing statements, functions, or imports.`
-                };
+                if (!allowedStandaloneTokens.includes(trimmed)) {
+                    return {
+                        valid: false,
+                        error: `Invalid syntax: Bare keyword '${trimmed}' is not a valid Python script or web handler. Missing statements, functions, or imports.`
+                    };
+                }
             }
 
             // 2. Command / CLI tool detections across operating systems
@@ -2306,59 +2316,38 @@ def download():
 
                 if (lineTrim.length === 0) continue;
 
-                // Check if inside triple-quoted multiline string
-                if (inTripleSingle) {
-                    if (line.includes("'''")) {
-                        inTripleSingle = false;
-                    }
-                    continue;
-                }
-                if (inTripleDouble) {
-                    if (line.includes('"""')) {
-                        inTripleDouble = false;
-                    }
-                    continue;
-                }
-
-                // Check for shell / CLI commands
-                for (const cmdPattern of shellCommandPatterns) {
-                    if (cmdPattern.test(lineTrim) && !lineTrim.includes('=') && !lineTrim.startsWith('#')) {
-                        return {
-                            valid: false,
-                            line: lineNum,
-                            error: `SyntaxError on line ${lineNum}: Detected terminal/shell command '${lineTrim.slice(0, 30)}'. Only valid Python code (or .sql database schemas) can be executed.`
-                        };
-                    }
-                }
-
-                // Check for foreign language syntax
-                for (const foreign of foreignLanguagePatterns) {
-                    if (foreign.regex.test(lineTrim) && !lineTrim.startsWith('#')) {
-                        return {
-                            valid: false,
-                            line: lineNum,
-                            error: `SyntaxError on line ${lineNum}: Detected ${foreign.lang} syntax. Python code is required.`
-                        };
-                    }
-                }
-
-                // Tokenize line character-by-character to strictly handle strings, quotes, and brackets
                 let inSingle = false, inDouble = false;
                 let escaped = false;
+                let codeOutsideStrings = '';
 
                 for (let c = 0; c < line.length; c++) {
                     const ch = line[c];
-                    const next2 = line.slice(c, c + 3);
+                    const next3 = line.slice(c, c + 3);
 
-                    // Check for triple quotes
+                    // Handle triple quotes
+                    if (inTripleSingle) {
+                        if (next3 === "'''") {
+                            inTripleSingle = false;
+                            c += 2;
+                        }
+                        continue;
+                    }
+                    if (inTripleDouble) {
+                        if (next3 === '"""') {
+                            inTripleDouble = false;
+                            c += 2;
+                        }
+                        continue;
+                    }
+
                     if (!inSingle && !inDouble) {
-                        if (next2 === "'''") {
-                            inTripleSingle = !inTripleSingle;
+                        if (next3 === "'''") {
+                            inTripleSingle = true;
                             c += 2;
                             continue;
                         }
-                        if (next2 === '"""') {
-                            inTripleDouble = !inTripleDouble;
+                        if (next3 === '"""') {
+                            inTripleDouble = true;
                             c += 2;
                             continue;
                         }
@@ -2374,7 +2363,7 @@ def download():
                         continue;
                     }
 
-                    // Comment starts outside of string
+                    // Outside string, comment starts
                     if (ch === '#' && !inSingle && !inDouble) {
                         break;
                     }
@@ -2388,8 +2377,8 @@ def download():
                         continue;
                     }
 
-                    // Only count code brackets outside of string literals
                     if (!inSingle && !inDouble) {
+                        codeOutsideStrings += ch;
                         if (ch === '(') parens++;
                         if (ch === ')') parens--;
                         if (ch === '[') brackets++;
@@ -2415,19 +2404,43 @@ def download():
                     };
                 }
 
-                // Check for missing colon on def, class, if, for, while, etc.
-                const cleanNoComment = lineTrim.split('#')[0].trim();
-                const startsWithKeyword = /^(?:def|class|if|elif|else|for|while|try|except|finally|with)\b/.test(cleanNoComment);
-                if (startsWithKeyword && !cleanNoComment.endsWith(':') && parens === 0 && brackets === 0) {
+                const cleanCode = codeOutsideStrings.trim();
+                if (cleanCode.length === 0) continue;
+
+                // Shell / CLI commands check on code outside strings
+                for (const cmdPattern of shellCommandPatterns) {
+                    if (cmdPattern.test(cleanCode) && !cleanCode.includes('=')) {
+                        return {
+                            valid: false,
+                            line: lineNum,
+                            error: `SyntaxError on line ${lineNum}: Detected terminal/shell command '${cleanCode.slice(0, 30)}'. Only valid Python code (or .sql database schemas) can be executed.`
+                        };
+                    }
+                }
+
+                // Foreign language check on code outside strings
+                for (const foreign of foreignLanguagePatterns) {
+                    if (foreign.regex.test(cleanCode)) {
+                        return {
+                            valid: false,
+                            line: lineNum,
+                            error: `SyntaxError on line ${lineNum}: Detected ${foreign.lang} syntax. Python code is required.`
+                        };
+                    }
+                }
+
+                // Check for missing colon on statements
+                const startsWithKeyword = /^(?:def|class|if|elif|else|for|while|try|except|finally|with)\b/.test(cleanCode);
+                if (startsWithKeyword && !cleanCode.includes(':') && parens === 0 && brackets === 0) {
                     return {
                         valid: false,
                         line: lineNum,
-                        error: `SyntaxError on line ${lineNum}: expected ':' at end of statement '${cleanNoComment.slice(0, 35)}'`
+                        error: `SyntaxError on line ${lineNum}: expected ':' at end of statement '${cleanCode.slice(0, 35)}'`
                     };
                 }
 
                 // Check for decorator not followed by def/class
-                if (cleanNoComment.startsWith('@')) {
+                if (cleanCode.startsWith('@')) {
                     let followedByDef = false;
                     for (let nextIdx = lineIdx + 1; nextIdx < lines.length; nextIdx++) {
                         const nextLine = lines[nextIdx].trim();
@@ -2441,22 +2454,24 @@ def download():
                         return {
                             valid: false,
                             line: lineNum,
-                            error: `Format Error on line ${lineNum}: Decorator '${cleanNoComment}' is out of order. Decorators must immediately precede a function or class definition.`
+                            error: `Format Error on line ${lineNum}: Decorator '${cleanCode}' is out of order. Decorators must immediately precede a function or class definition.`
                         };
                     }
                 }
 
-                // Bare identifier check on standalone line (e.g. 'hi')
-                if (/^[a-zA-Z_]\w*$/.test(cleanNoComment) && !['pass', 'break', 'continue'].includes(cleanNoComment)) {
-                    return {
-                        valid: false,
-                        line: lineNum,
-                        error: `SyntaxError on line ${lineNum}: Bare token '${cleanNoComment}' is out of format order (missing assignment, function call, or operation).`
-                    };
+                // Bare identifier check on standalone line (e.g. 'hi') outside of open expressions
+                if (parens === 0 && brackets === 0 && braces === 0 && /^[a-zA-Z_]\w*$/.test(cleanCode)) {
+                    if (!allowedStandaloneTokens.includes(cleanCode)) {
+                        return {
+                            valid: false,
+                            line: lineNum,
+                            error: `SyntaxError on line ${lineNum}: Bare token '${cleanCode}' is out of format order (missing assignment, function call, or operation).`
+                        };
+                    }
                 }
 
-                // Indentation check after colon
-                if (cleanNoComment.endsWith(':') && lineIdx < lines.length - 1) {
+                // Indentation check after statement ending with colon
+                if (parens === 0 && brackets === 0 && braces === 0 && cleanCode.endsWith(':') && lineIdx < lines.length - 1) {
                     let nextNonEmpty = null;
                     let nextLineIdx = -1;
                     for (let nextIdx = lineIdx + 1; nextIdx < lines.length; nextIdx++) {
