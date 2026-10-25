@@ -70,20 +70,36 @@ def _parse_route_decorator(dec: ast.expr) -> dict[str, Any] | None:
 
 def _find_request_param(func_node: ast.FunctionDef | ast.AsyncFunctionDef, source: str) -> str | None:
     """Find request.args.get('param') or request.form.get('param') in a function body."""
+    # First try AST traversal
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "get":
+                val = func.value
+                if isinstance(val, ast.Attribute) and val.attr in ("args", "form"):
+                    if isinstance(val.value, ast.Name) and val.value.id == "request":
+                        if node.args and isinstance(node.args[0], ast.Constant):
+                            return str(node.args[0].value)
+        elif isinstance(node, ast.Subscript):
+            val = node.value
+            if isinstance(val, ast.Attribute) and val.attr in ("args", "form"):
+                if isinstance(val.value, ast.Name) and val.value.id == "request":
+                    if isinstance(node.slice, ast.Constant):
+                        return str(node.slice.value)
+
+    # Fallback to regex
     func_source = ast.get_source_segment(source, func_node)
     if not func_source:
-        # Fallback: read from line range
         lines = source.splitlines()
         start = func_node.lineno - 1
         end = func_node.end_lineno or start + 50
         func_source = "\n".join(lines[start:end])
 
-    # Match request.args.get("param") or request.form.get("param")
     patterns = [
-        r'request\.args\.get\(["\'](\w+)["\']\)',
-        r'request\.form\.get\(["\'](\w+)["\']\)',
-        r'request\.args\[["\'](\w+)["\']\]',
-        r'request\.form\[["\'](\w+)["\']\]',
+        r'request\.args\.get\(\s*["\'](\w+)["\']',
+        r'request\.form\.get\(\s*["\'](\w+)["\']',
+        r'request\.args\[\s*["\'](\w+)["\']',
+        r'request\.form\[\s*["\'](\w+)["\']',
     ]
     for pattern in patterns:
         match = re.search(pattern, func_source)
