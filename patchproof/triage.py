@@ -10,7 +10,7 @@ from rich.console import Console
 from .models import Finding, TraceStep
 from .entrypoint import resolve_entry_point
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def build_trace_chain(dataflow_trace: dict[str, Any] | None, file_path: str, line: int, code: str) -> list[TraceStep]:

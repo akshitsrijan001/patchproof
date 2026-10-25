@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from rich.console import Console
 
 from .models import Finding
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def run_test(
@@ -23,7 +24,7 @@ def run_test(
     console.print(f"  Running {label}: {test_path.name}...")
 
     cmd = [
-        "python", "-m", "pytest",
+        sys.executable, "-m", "pytest",
         str(test_path),
         "-v",
         "--tb=short",
@@ -35,6 +36,8 @@ def run_test(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(project_root),
         timeout=60,
     )
@@ -44,7 +47,7 @@ def run_test(
     passed = result.returncode == 0
     failed = result.returncode != 0
 
-    status_icon = "[green]✓ PASS[/green]" if passed else "[red]✗ FAIL[/red]"
+    status_icon = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
     console.print(f"    {status_icon} ({elapsed:.1f}s)")
 
     return {

@@ -5,20 +5,20 @@ from flask import request
 
 # --- Vulnerable patterns (should trigger the rule) ---
 
-# ruleid: pp-flask-sqli
 def vuln_fstring(db):
     q = request.args.get("q")
     query = f"SELECT name FROM users WHERE name = '{q}'"
+    # ruleid: pp-flask-sqli
     db.execute(query)
 
-# ruleid: pp-flask-sqli
 def vuln_format(db):
     q = request.args.get("q")
+    # ruleid: pp-flask-sqli
     db.execute("SELECT name FROM users WHERE name = '%s'" % q)
 
-# ruleid: pp-flask-sqli
 def vuln_concat(db):
     q = request.args.get("q")
+    # ruleid: pp-flask-sqli
     db.execute("SELECT name FROM users WHERE name = '" + q + "'")
 
 # --- Fixed patterns (should NOT trigger the rule) ---

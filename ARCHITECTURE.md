@@ -415,7 +415,12 @@ Be upfront in the pitch about the limit: template-based tests cover known vulner
 
 **Flaky tests (ports, temp files).** Use Flask's `test_client` instead of a real server and use `tmp_path` for nonces.
 
-**Windows demo machine.** The command injection payloads and canary (`touch /tmp/...`, `ping` flags) are POSIX, so the target app and all test runs always execute inside the Linux container, never natively. Docker Desktop on Windows is itself a risk: pre-build and cache the image, run the full demo on the actual machine the night before, and make `patchproof demo` check that the container is up and fall back to the pre-generated reports with a clear message if it is not.
+**Cross-platform compatibility (Windows & Linux).** The pipeline has been engineered with full native Windows & POSIX cross-platform support:
+- Native virtual environment binary resolution (`find_semgrep()` and `sys.executable`) to avoid PATH reliance.
+- Multi-platform command execution handling (e.g., OS-adaptive ping flags `-n 1` on Windows, `-c 1` on POSIX).
+- Full UTF-8 subprocess stream decoding and console renderer fallback to prevent legacy Windows console `charmap` encode/decode errors.
+- Clean mutant patch isolation: the mutation testing engine automatically reverts good fixes temporarily during sensitivity analysis, applies near-miss mutants against the unpatched baseline, and restores verified fixes after score calculation.
+- Docker containerization remains available via `Dockerfile` for standardized headless CI/CD execution.
 
 **Live demo failure.** Always have the pre-recorded video and pre-generated reports ready.
 

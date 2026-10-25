@@ -7,9 +7,9 @@
 -    # VULNERABLE: user input directly in query string
 -    query = f"SELECT name, role FROM users WHERE name LIKE '%{q}%'"
 -    cursor.execute(query)
-+    # MUTANT: manual quote escaping (weak fix, bypassable)
-+    q_escaped = q.replace("'", "''")
-+    cursor.execute(f"SELECT name, role FROM users WHERE name LIKE '%{q_escaped}%'")
++    # MUTANT: manual comment strip (weak fix, bypassable with /* or inline logic)
++    q_filtered = q.replace("--", "")
++    cursor.execute(f"SELECT name, role FROM users WHERE name LIKE '%{q_filtered}%'")
      results = cursor.fetchall()
      conn.close()
      return jsonify({"query": q, "results": [{"name": r[0], "role": r[1]} for r in results]})

@@ -12,7 +12,7 @@ from rich.console import Console
 
 from .models import Finding, Evidence
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def generate_finding_report(evidence: Evidence, output_dir: Path) -> Path:

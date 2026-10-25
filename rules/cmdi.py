@@ -6,20 +6,20 @@ from flask import request
 
 # --- Vulnerable patterns ---
 
-# ruleid: pp-flask-cmdi
 def vuln_subprocess_shell(host=None):
     host = request.args.get("host")
     cmd = f"ping -c 1 {host}"
+    # ruleid: pp-flask-cmdi
     subprocess.run(cmd, shell=True, capture_output=True)
 
-# ruleid: pp-flask-cmdi
 def vuln_os_system():
     host = request.args.get("host")
+    # ruleid: pp-flask-cmdi
     os.system(f"ping -c 1 {host}")
 
-# ruleid: pp-flask-cmdi
 def vuln_os_popen():
     host = request.args.get("host")
+    # ruleid: pp-flask-cmdi
     os.popen(f"ping -c 1 {host}")
 
 # --- Fixed patterns ---

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from rich.console import Console
 from .models import Finding
 from .scan import run_semgrep, parse_semgrep_results
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def rescan_and_compare(
@@ -59,9 +60,11 @@ def run_existing_tests(project_root: Path) -> tuple[bool, str]:
         return True, "No existing tests"
 
     result = subprocess.run(
-        ["python", "-m", "pytest", str(test_dir), "-v", "--tb=short"],
+        [sys.executable, "-m", "pytest", str(test_dir), "-v", "--tb=short"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(project_root),
         timeout=120,
     )

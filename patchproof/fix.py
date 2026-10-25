@@ -9,7 +9,7 @@ from typing import Any
 
 from rich.console import Console
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def apply_patch(
@@ -29,6 +29,8 @@ def apply_patch(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(project_root),
     )
 
@@ -41,7 +43,14 @@ def apply_patch(
         if reverse:
             cmd_3way.append("--reverse")
         cmd_3way.append(str(patch_file))
-        result2 = subprocess.run(cmd_3way, capture_output=True, text=True, cwd=str(project_root))
+        result2 = subprocess.run(
+            cmd_3way,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(project_root),
+        )
         if result2.returncode == 0:
             console.print(f"    [green]{'Reverted' if reverse else 'Applied'} with 3-way merge[/green]")
             return True

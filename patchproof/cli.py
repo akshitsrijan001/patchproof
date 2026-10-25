@@ -8,6 +8,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -19,7 +26,7 @@ app = typer.Typer(
     help="Security Rules That Generate Regression Tests",
     rich_markup_mode="rich",
 )
-console = Console()
+console = Console(legacy_windows=False)
 
 # Default paths relative to project root
 DEFAULT_TARGET = "target/vuln_app"
@@ -193,6 +200,10 @@ def verify(
         if finding.status in ("fixed", "confirmed"):
             green_run(finding, root)
             rescan_and_compare(finding, target_dir, rules_dir, output_dir)
+            if finding.green and finding.green.get("passed") and finding.sarif_after is False:
+                finding.status = "fixed"
+            elif finding.green and finding.green.get("failed"):
+                finding.status = "fix_rejected"
             run_sensitivity_check(finding, fixes_dir, root)
 
     # Run existing test suite
@@ -322,6 +333,8 @@ def demo(
             rescan_and_compare(finding, target_dir, rules_dir, output_dir)
             if finding.green and finding.green.get("passed") and finding.sarif_after is False:
                 finding.status = "fixed"
+            elif finding.green and finding.green.get("failed"):
+                finding.status = "fix_rejected"
 
     # Sensitivity check
     console.print(Panel("[bold]Sensitivity Check[/bold]", style="cyan"))

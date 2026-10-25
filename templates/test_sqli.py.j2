@@ -14,6 +14,12 @@ PAYLOADS = [
 {%- endfor %}
 ]
 
+BYPASS_PAYLOADS = [
+{%- for payload in bypass_payloads %}
+    {{ payload | tojson }},
+{%- endfor %}
+]
+
 
 @pytest.fixture
 def client():
@@ -23,7 +29,7 @@ def client():
         yield c
 
 
-@pytest.mark.parametrize("payload", PAYLOADS)
+@pytest.mark.parametrize("payload", PAYLOADS + BYPASS_PAYLOADS)
 def test_{{ param }}_does_not_leak_secret_row(client, payload):
     """The search endpoint must not return the canary row for any payload."""
     r = client.{{ method }}("{{ route }}", query_string={"{{ param }}": payload})

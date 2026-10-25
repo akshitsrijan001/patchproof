@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 
-console = Console()
+console = Console(legacy_windows=False)
+
+
+def find_semgrep() -> str:
+    """Locate the semgrep executable."""
+    which_path = shutil.which("semgrep")
+    if which_path:
+        return which_path
+    venv_bin = Path(sys.executable).parent
+    for name in ["semgrep.exe", "semgrep"]:
+        candidate = venv_bin / name
+        if candidate.exists():
+            return str(candidate)
+    return "semgrep"
 
 
 def run_semgrep(
@@ -23,13 +38,17 @@ def run_semgrep(
     json_output = output_dir / "scan_results.json"
     sarif_output = output_dir / "scan_results.sarif"
 
+    semgrep_bin = find_semgrep()
+
     cmd = [
-        "semgrep", "scan",
+        semgrep_bin, "scan",
         "--config", str(rules_dir),
         "--json",
         f"--output={json_output}",
         "--dataflow-traces",
         "--no-git-ignore",
+        "--metrics=off",
+        "--disable-version-check",
         str(target_dir),
     ]
     if extra_args:
@@ -43,6 +62,8 @@ def run_semgrep(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(target_dir.parent),
     )
 
@@ -53,18 +74,27 @@ def run_semgrep(
 
     # Also run SARIF output
     sarif_cmd = [
-        "semgrep", "scan",
+        semgrep_bin, "scan",
         "--config", str(rules_dir),
         "--sarif",
         f"--output={sarif_output}",
         "--dataflow-traces",
         "--no-git-ignore",
+        "--metrics=off",
+        "--disable-version-check",
         str(target_dir),
     ]
-    subprocess.run(sarif_cmd, capture_output=True, text=True, cwd=str(target_dir.parent))
+    subprocess.run(
+        sarif_cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(target_dir.parent),
+    )
 
     if json_output.exists():
-        results = json.loads(json_output.read_text())
+        results = json.loads(json_output.read_text(encoding="utf-8"))
         num_findings = len(results.get("results", []))
         console.print(f"[bold green]Found {num_findings} finding(s)[/bold green]")
         return results
@@ -77,8 +107,10 @@ def parse_semgrep_results(results: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract relevant finding data from Semgrep JSON output."""
     findings = []
     for r in results.get("results", []):
+        raw_id = r.get("check_id", "")
+        rule_id = raw_id.split(".")[-1] if "." in raw_id else raw_id
         finding = {
-            "rule_id": r.get("check_id", ""),
+            "rule_id": rule_id,
             "path": r.get("path", ""),
             "start_line": r.get("start", {}).get("line", 0),
             "end_line": r.get("end", {}).get("line", 0),

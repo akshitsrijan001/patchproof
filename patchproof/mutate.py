@@ -11,8 +11,9 @@ from rich.console import Console
 
 from .models import Finding
 from .runner import run_test
+from .fix import apply_fix_for_finding, revert_fix_for_finding
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def get_mutant_patches(fixes_dir: Path, rule_id: str) -> list[Path]:
@@ -61,38 +62,55 @@ def run_sensitivity_check(
 
     test_path = Path(finding.test_path)
 
-    for mutant_patch in mutant_patches:
-        console.print(f"\n  Mutant: {mutant_patch.name}")
+    # Revert good fix temporarily so mutant patches can apply cleanly on vulnerable code
+    reverted_good_fix = False
+    if finding.status in ("fixed", "confirmed"):
+        reverted_good_fix = revert_fix_for_finding(finding, fixes_dir, project_root)
 
-        # Apply the mutant (weak fix)
-        apply_result = subprocess.run(
-            ["git", "apply", "--whitespace=fix", str(mutant_patch)],
-            capture_output=True, text=True, cwd=str(project_root),
-        )
+    try:
+        for mutant_patch in mutant_patches:
+            console.print(f"\n  Mutant: {mutant_patch.name}")
 
-        if apply_result.returncode != 0:
-            console.print(f"    [yellow]Could not apply mutant[/yellow]")
-            details.append({"mutant": mutant_patch.name, "status": "skipped", "reason": "apply failed"})
-            continue
+            # Apply the mutant (weak fix)
+            apply_result = subprocess.run(
+                ["git", "apply", "--whitespace=fix", str(mutant_patch)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(project_root),
+            )
 
-        # Run the test
-        result = run_test(test_path, project_root, label=f"mutant {mutant_patch.stem}")
+            if apply_result.returncode != 0:
+                console.print(f"    [yellow]Could not apply mutant[/yellow]")
+                details.append({"mutant": mutant_patch.name, "status": "skipped", "reason": "apply failed"})
+                continue
 
-        if result["failed"]:
-            # Test catches the weak fix — mutant killed
-            console.print(f"    [green]Mutant killed![/green] Test catches weak fix.")
-            killed += 1
-            details.append({"mutant": mutant_patch.name, "status": "killed"})
-        else:
-            # Test passes with weak fix — mutant survived
-            console.print(f"    [red]Mutant survived![/red] Payload bank may need a bypass.")
-            details.append({"mutant": mutant_patch.name, "status": "survived"})
+            # Run the test
+            result = run_test(test_path, project_root, label=f"mutant {mutant_patch.stem}")
 
-        # Revert the mutant
-        subprocess.run(
-            ["git", "apply", "--reverse", "--whitespace=fix", str(mutant_patch)],
-            capture_output=True, text=True, cwd=str(project_root),
-        )
+            if result["failed"]:
+                # Test catches the weak fix — mutant killed
+                console.print(f"    [green]Mutant killed![/green] Test catches weak fix.")
+                killed += 1
+                details.append({"mutant": mutant_patch.name, "status": "killed"})
+            else:
+                # Test passes with weak fix — mutant survived
+                console.print(f"    [red]Mutant survived![/red] Payload bank may need a bypass.")
+                details.append({"mutant": mutant_patch.name, "status": "survived"})
+
+            # Revert the mutant
+            subprocess.run(
+                ["git", "apply", "--reverse", "--whitespace=fix", str(mutant_patch)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(project_root),
+            )
+    finally:
+        if reverted_good_fix:
+            apply_fix_for_finding(finding, fixes_dir, project_root)
 
     console.print(f"\n  [bold]Sensitivity score: {killed}/{total} mutants killed[/bold]")
     finding.mutants_killed = (killed, total)

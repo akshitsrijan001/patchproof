@@ -217,3 +217,4 @@ When a Pull Request introduces code:
 ## 9. License
 
 MIT License. Copyright (c) 2026 Akshit Srijan.
+
