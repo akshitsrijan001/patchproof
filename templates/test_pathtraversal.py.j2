@@ -1,0 +1,37 @@
+# PatchProof | rule {{ finding.rule_id }} | {{ finding.cwe }}
+# source: {{ source_file }}:{{ source_line }}  {{ source_code }}
+# sink:   {{ sink_file }}:{{ sink_line }}  {{ sink_code }}
+"""Regression test: path traversal must not expose secret files."""
+
+import pytest
+from target.vuln_app.app import app
+
+CANARY = "{{ canary }}"
+
+PAYLOADS = [
+{%- for payload in payloads %}
+    {{ payload | tojson }},
+{%- endfor %}
+]
+
+BYPASS_PAYLOADS = [
+{%- for payload in bypass_payloads %}
+    {{ payload | tojson }},
+{%- endfor %}
+]
+
+
+@pytest.fixture
+def client():
+    """Create a test client for the vulnerable app."""
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.mark.parametrize("payload", PAYLOADS + BYPASS_PAYLOADS)
+def test_{{ param }}_does_not_expose_secrets(client, payload):
+    """The download endpoint must not serve files outside the public directory."""
+    r = client.{{ method }}("{{ route }}", query_string={"{{ param }}": payload})
+    body = r.get_data(as_text=True)
+    assert CANARY not in body, f"Path traversal succeeded with payload: {payload}"

@@ -1,0 +1,21 @@
+rules:
+  - id: pp-flask-ssrf
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "User input flows into a URL for an outbound request. Validate the scheme and host."
+    pattern-sources:
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get($URL, ...)
+              - pattern: requests.post($URL, ...)
+              - pattern: urllib.request.urlopen($URL, ...)
+          - focus-metavariable: $URL
+    metadata:
+      cwe: CWE-918
+      confidence: MEDIUM
+      patchproof:
+        template: ssrf
+        payloads: ssrf

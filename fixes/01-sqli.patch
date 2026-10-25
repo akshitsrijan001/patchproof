@@ -1,0 +1,14 @@
+--- a/target/vuln_app/app.py
++++ b/target/vuln_app/app.py
+@@ -49,9 +49,8 @@
+     q = request.args.get("q", "")
+     conn = sqlite3.connect(DB_PATH)
+     cursor = conn.cursor()
+-    # VULNERABLE: user input directly in query string
+-    query = f"SELECT name, role FROM users WHERE name LIKE '%{q}%'"
+-    cursor.execute(query)
++    # FIXED: parameterized query
++    cursor.execute("SELECT name, role FROM users WHERE name LIKE ?", (f"%{q}%",))
+     results = cursor.fetchall()
+     conn.close()
+     return jsonify({"query": q, "results": [{"name": r[0], "role": r[1]} for r in results]})

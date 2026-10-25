@@ -1,0 +1,21 @@
+rules:
+  - id: pp-flask-sqli
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "User input flows into the text of a SQL query. Use parameterized queries instead."
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.form.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $CURSOR.execute($QUERY, ...)
+          - focus-metavariable: $QUERY
+    metadata:
+      cwe: CWE-89
+      confidence: HIGH
+      patchproof:
+        template: sqli
+        payloads: sqli
+    fix: |
+      Use parameterized queries: cursor.execute("SELECT ... WHERE name = ?", (user_input,))

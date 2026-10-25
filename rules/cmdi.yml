@@ -1,0 +1,23 @@
+rules:
+  - id: pp-flask-cmdi
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "User input flows into a shell command string. Use an argument list with shell=False."
+    pattern-sources:
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.$FUNC($CMD, ..., shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: os.popen($CMD, ...)
+          - focus-metavariable: $CMD
+    metadata:
+      cwe: CWE-78
+      confidence: HIGH
+      patchproof:
+        template: cmdi
+        payloads: cmdi
+    fix: |
+      Use subprocess.run(["cmd", "arg1", ...], shell=False) with input validation.

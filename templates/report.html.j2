@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PatchProof — Verification Report</title>
+    <style>
+        :root {
+            --bg: #0d1117; --fg: #c9d1d9; --card: #161b22;
+            --border: #30363d; --green: #3fb950; --red: #f85149;
+            --yellow: #d29922; --blue: #58a6ff; --purple: #bc8cff;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg); color: var(--fg);
+            max-width: 1100px; margin: 0 auto; padding: 2rem 1rem;
+            line-height: 1.6;
+        }
+        h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+        h2 { font-size: 1.4rem; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        h3 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+        .subtitle { color: #8b949e; font-size: 1rem; margin-bottom: 2rem; }
+
+        /* Summary table */
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { padding: 0.6rem 0.8rem; text-align: left; border: 1px solid var(--border); }
+        th { background: #21262d; font-weight: 600; }
+        tr:hover { background: #1c2128; }
+        code { background: #21262d; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+
+        /* Badges */
+        .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+        .badge-fixed { background: #238636; color: #fff; }
+        .badge-rejected { background: #da3633; color: #fff; }
+        .badge-unconfirmed { background: #9e6a03; color: #fff; }
+
+        /* Timeline */
+        .timeline { display: flex; gap: 0.25rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+        .timeline-step {
+            padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;
+        }
+        .step-scan { background: #1f6feb33; color: var(--blue); }
+        .step-red { background: #f8514933; color: var(--red); }
+        .step-fix { background: #d2992233; color: var(--yellow); }
+        .step-green { background: #3fb95033; color: var(--green); }
+        .step-rescan { background: #bc8cff33; color: var(--purple); }
+        .arrow { color: #484f58; }
+
+        /* Collapsible details */
+        details { margin: 0.75rem 0; background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+        summary { padding: 0.6rem 1rem; cursor: pointer; font-weight: 600; user-select: none; }
+        summary:hover { background: #1c2128; }
+        .detail-content { padding: 0 1rem 1rem; }
+
+        /* Code blocks */
+        pre {
+            background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+            padding: 1rem; overflow-x: auto; font-size: 0.85rem; line-height: 1.5;
+            margin: 0.5rem 0;
+        }
+
+        /* Trace steps */
+        .trace-step { margin: 0.5rem 0; padding: 0.5rem; border-left: 3px solid var(--border); padding-left: 1rem; }
+        .trace-source { border-color: var(--green); }
+        .trace-propagation { border-color: var(--blue); }
+        .trace-sink { border-color: var(--red); }
+        .trace-label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+
+        .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #484f58; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <h1>🛡️ PatchProof</h1>
+    <p class="subtitle">Security Rules That Generate Regression Tests — Verification Report</p>
+
+    <h2>Summary</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th><th>Rule</th><th>CWE</th><th>Status</th>
+                <th>Red</th><th>Green</th><th>Scanner</th><th>Sensitivity</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for ev in evidences %}
+            {% set f = ev.finding %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td><code>{{ f.rule_id }}</code></td>
+                <td>{{ f.cwe }}</td>
+                <td>
+                    {% if f.status == 'fixed' %}<span class="badge badge-fixed">FIXED ✅</span>
+                    {% elif f.status == 'fix_rejected' %}<span class="badge badge-rejected">REJECTED ❌</span>
+                    {% elif f.status == 'unconfirmed' %}<span class="badge badge-unconfirmed">UNCONFIRMED ⚠️</span>
+                    {% else %}{{ f.status }}{% endif %}
+                </td>
+                <td>{% if f.red and f.red.failed %}FAIL ✗{% else %}—{% endif %}</td>
+                <td>{% if f.green and f.green.passed %}PASS ✓{% else %}—{% endif %}</td>
+                <td>{% if f.sarif_after == false %}Resolved ✅{% elif f.sarif_after %}Present ❌{% else %}—{% endif %}</td>
+                <td>{% if f.mutants_killed %}{{ f.mutants_killed[0] }}/{{ f.mutants_killed[1] }}{% else %}—{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% for ev in evidences %}
+    {% set f = ev.finding %}
+    <h2>{{ f.rule_id }} — {{ f.cwe }}</h2>
+
+    <div class="timeline">
+        <span class="timeline-step step-scan">📡 Scan</span><span class="arrow">→</span>
+        {% if f.red %}<span class="timeline-step step-red">🔴 Red</span><span class="arrow">→</span>{% endif %}
+        {% if ev.diff_patch %}<span class="timeline-step step-fix">🔧 Fix</span><span class="arrow">→</span>{% endif %}
+        {% if f.green %}<span class="timeline-step step-green">🟢 Green</span><span class="arrow">→</span>{% endif %}
+        {% if f.sarif_after is not none %}<span class="timeline-step step-rescan">🔍 Rescan</span>{% endif %}
+    </div>
+
+    <h3>Root Cause</h3>
+    {% for step in f.trace %}
+    <div class="trace-step trace-{{ step.role }}">
+        <span class="trace-label">{{ step.role }}</span> — <code>{{ step.file }}:{{ step.line }}</code>
+        <pre>{{ step.code }}</pre>
+    </div>
+    {% endfor %}
+
+    {% if f.red %}
+    <details>
+        <summary>🔴 Red Run Output</summary>
+        <div class="detail-content"><pre>{{ f.red.output }}</pre></div>
+    </details>
+    {% endif %}
+
+    {% if ev.diff_patch %}
+    <details open>
+        <summary>🔧 Fix Diff</summary>
+        <div class="detail-content"><pre>{{ ev.diff_patch }}</pre></div>
+    </details>
+    {% endif %}
+
+    {% if f.green %}
+    <details>
+        <summary>🟢 Green Run Output</summary>
+        <div class="detail-content"><pre>{{ f.green.output }}</pre></div>
+    </details>
+    {% endif %}
+
+    {% endfor %}
+
+    <div class="footer">
+        <p>Generated by PatchProof v0.1.0</p>
+    </div>
+</body>
+</html>

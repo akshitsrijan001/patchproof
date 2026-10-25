@@ -1,0 +1,79 @@
+name: PatchProof Security Verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Install PatchProof
+        run: pip install -e .
+
+      - name: Run Semgrep rule tests
+        run: semgrep --test rules/
+
+      - name: Run PatchProof unit tests
+        run: python -m pytest tests/ -v
+
+      - name: Run PatchProof scan
+        run: patchproof scan
+
+      - name: Generate regression tests
+        run: patchproof gen
+
+      - name: Red run (proof of exploitability)
+        run: patchproof red
+
+      - name: Apply fixes
+        run: patchproof fix
+
+      - name: Verify fixes (green run + rescan)
+        run: patchproof verify
+
+      - name: Generate reports
+        run: patchproof report
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: patchproof-reports
+          path: reports/
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summaryPath = 'reports/SUMMARY.md';
+            let body = '## 🛡️ PatchProof Verification Results\n\n';
+            if (fs.existsSync(summaryPath)) {
+              body += fs.readFileSync(summaryPath, 'utf8');
+            } else {
+              body += '⚠️ No summary report generated.';
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

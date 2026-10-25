@@ -1,0 +1,14 @@
+--- a/target/vuln_app/app.py
++++ b/target/vuln_app/app.py
+@@ -72,8 +73,9 @@
+ def download():
+     """Download a file. VULNERABLE: path traversal via user input."""
+     filename = request.args.get("file", "readme.txt")
+-    # VULNERABLE: user input joined into path without sanitization
+-    filepath = os.path.join(PUBLIC_DIR, filename)
++    # MUTANT: strips ../ once (bypassable with ....// or encoded)
++    cleaned = filename.replace("../", "")
++    filepath = os.path.join(PUBLIC_DIR, cleaned)
+     try:
+         return send_file(filepath)
+     except FileNotFoundError:

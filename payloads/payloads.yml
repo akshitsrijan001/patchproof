@@ -1,0 +1,44 @@
+# PatchProof payload banks per CWE class
+# Each bank includes exploit payloads, bypass variants, and canary values.
+
+sqli:
+  canary: "PP_CANARY_SQLI_8f2a"
+  payloads:
+    - "' OR '1'='1' --"
+    - "x' UNION SELECT name, role FROM users --"
+    - "' OR 1=1 --"
+  bypass_payloads:
+    - "' OR '1'='1' /*"
+    - "\\' OR 1=1 --"
+    - "' OR ''='"
+
+cmdi:
+  canary: "PP_CANARY_CMDI"
+  nonce_prefix: "pp_nonce_"
+  payloads:
+    - "; echo PP_CANARY_CMDI"
+    - "127.0.0.1; echo PP_CANARY_CMDI"
+    - "127.0.0.1 && echo PP_CANARY_CMDI"
+  bypass_payloads:
+    - "$(echo PP_CANARY_CMDI)"
+    - "127.0.0.1 | echo PP_CANARY_CMDI"
+    - "`echo PP_CANARY_CMDI`"
+
+pathtraversal:
+  canary: "PP_CANARY_PATHTRAVERSAL_3d7b"
+  payloads:
+    - "../../secrets/secret.txt"
+    - "../secrets/secret.txt"
+  bypass_payloads:
+    - "....//secrets/secret.txt"
+    - "..%2f..%2fsecrets/secret.txt"
+    - "..\\..\\secrets\\secret.txt"
+
+ssrf:
+  canary: "PP_CANARY_SSRF"
+  payloads:
+    - "http://127.0.0.1:9999/canary"
+    - "http://localhost:9999/canary"
+  bypass_payloads:
+    - "http://0x7f000001:9999/canary"
+    - "http://[::1]:9999/canary"

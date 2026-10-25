@@ -1,0 +1,25 @@
+rules:
+  - id: pp-flask-pathtraversal
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "User input flows into a filesystem path. Use safe_join and validate the resolved path."
+    pattern-sources:
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($PATH, ...)
+              - pattern: send_file($PATH, ...)
+          - focus-metavariable: $PATH
+    pattern-sanitizers:
+      - pattern: werkzeug.utils.safe_join(...)
+      - pattern: safe_join(...)
+    metadata:
+      cwe: CWE-22
+      confidence: HIGH
+      patchproof:
+        template: pathtraversal
+        payloads: pathtraversal
+    fix: |
+      Use werkzeug.utils.safe_join() and verify the resolved path is within the allowed directory.

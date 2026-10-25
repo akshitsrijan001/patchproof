@@ -1,0 +1,17 @@
+--- a/target/vuln_app/app.py
++++ b/target/vuln_app/app.py
+@@ -60,8 +60,12 @@
+ def ping():
+     """Ping a host. VULNERABLE: command injection via shell=True."""
+     host = request.args.get("host", "127.0.0.1")
+-    # VULNERABLE: user input in shell command
+-    cmd = f"ping -c 1 {host}"
++    # BAD FIX: blacklist that only blocks semicolons
++    # Bypass: $(cmd), |cmd, `cmd` all still work
++    blocked = [";", "&&"]
++    for char in blocked:
++        host = host.replace(char, "")
++    cmd = f"ping -c 1 {host}"
+     result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+     return jsonify({
+         "host": host,
