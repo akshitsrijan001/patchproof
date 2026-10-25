@@ -396,5 +396,42 @@ def demo(
     console.print(f"Reports: {reports_dir}")
 
 
+@app.command()
+def serve(
+    port: int = typer.Option(8080, help="Port to serve the interactive web UI"),
+    reports: str = typer.Option(DEFAULT_REPORTS, help="Reports directory"),
+):
+    """Serve the interactive PatchProof Web Studio & Dashboard."""
+    import http.server
+    import socketserver
+
+    root = get_project_root()
+    reports_dir = root / reports
+    if not reports_dir.exists():
+        reports_dir.mkdir(parents=True, exist_ok=True)
+
+    class CustomHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(reports_dir), **kwargs)
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html"):
+                self.path = "/report.html"
+            return super().do_GET()
+
+    console.print(Panel(
+        f"[bold green]PatchProof Web UI running at http://localhost:{port}[/bold green]\n"
+        f"Serving interactive dashboard from: {reports_dir}",
+        title="🌐 PatchProof Server",
+        border_style="green",
+    ))
+
+    with socketserver.TCPServer(("", port), CustomHandler) as httpd:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Server stopped.[/yellow]")
+
+
 if __name__ == "__main__":
     app()
