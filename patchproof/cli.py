@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -49,9 +50,25 @@ def get_project_root() -> Path:
     return cwd
 
 
+def resolve_target_dir(target_str: str, root: Path) -> Path:
+    """Resolve target path. If target is a .zip archive, automatically unpack it to a workspace."""
+    p = Path(target_str)
+    if not p.is_absolute():
+        p = root / p
+    if p.is_file() and p.suffix.lower() == ".zip":
+        extract_dir = root / ".patchproof" / "extracted_codebases" / p.stem
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"[cyan]📦 Detected ZIP archive: [bold]{p.name}[/bold]. Extracting to {extract_dir}...[/cyan]")
+        with zipfile.ZipFile(p, "r") as zf:
+            zf.extractall(extract_dir)
+        console.print(f"[green]✓ Extracted {len(zf.namelist())} files from archive ready for codebase scanning.[/green]")
+        return extract_dir
+    return p
+
+
 @app.command()
 def scan(
-    target: str = typer.Option(DEFAULT_TARGET, help="Target directory to scan"),
+    target: str = typer.Option(DEFAULT_TARGET, help="Target directory or .zip codebase to scan"),
     rules: str = typer.Option(DEFAULT_RULES, help="Semgrep rules directory"),
     output: str = typer.Option(DEFAULT_OUTPUT, help="Output directory"),
 ):
@@ -60,7 +77,7 @@ def scan(
     from .triage import triage_all
 
     root = get_project_root()
-    target_dir = root / target
+    target_dir = resolve_target_dir(target, root)
     rules_dir = root / rules
     output_dir = root / output
 
@@ -249,8 +266,9 @@ def report(
 @app.command()
 def demo(
     only: Optional[str] = typer.Option(None, help="Run demo for only one vuln: sqli, cmdi, pathtraversal"),
+    target: str = typer.Option(DEFAULT_TARGET, help="Target directory or .zip codebase to run demo against"),
 ):
-    """Run the full PatchProof demo on the bundled vulnerable app."""
+    """Run the full PatchProof demo on the bundled vulnerable app or custom codebase."""
     from .models import Finding, Evidence
     from .scan import run_semgrep, parse_semgrep_results
     from .triage import triage_all
@@ -262,7 +280,7 @@ def demo(
     from .report import generate_finding_report, generate_summary_report, generate_html_report
 
     root = get_project_root()
-    target_dir = root / DEFAULT_TARGET
+    target_dir = resolve_target_dir(target, root)
     rules_dir = root / DEFAULT_RULES
     output_dir = root / DEFAULT_OUTPUT
     templates_dir = root / DEFAULT_TEMPLATES
